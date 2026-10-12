@@ -111,21 +111,39 @@
       easy: {
         evadeDistance: 30,
         speed: '0.35s',
-        jumpRange: 160
+        jumpRange: 160,
+        autoMoveMs: 1400
       },
       medium: {
         evadeDistance: 60,
         speed: '0.18s',
-        jumpRange: 300
+        jumpRange: 300,
+        autoMoveMs: 900
       },
       hard: {
         evadeDistance: 100,
         speed: '0.08s',
-        jumpRange: 'full'
+        jumpRange: 'full',
+        autoMoveMs: 550
       }
     };
 
     let currentDifficulty = 'medium';
+
+    // Touch screens have no hover, so on mobile the circle dodges around on its own
+    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+    let autoMoveTimer = null;
+
+    function startAutoMove() {
+      if (!isTouchDevice) return;
+      if (autoMoveTimer) clearTimeout(autoMoveTimer);
+      const base = difficultyConfig[currentDifficulty].autoMoveMs;
+      // Randomize the rhythm a bit so it's harder to predict
+      autoMoveTimer = setTimeout(() => {
+        moveCircle();
+        startAutoMove();
+      }, base * (0.6 + Math.random() * 0.8));
+    }
 
     function getCircleSize() {
       return circle.getBoundingClientRect().width;
@@ -137,6 +155,7 @@
         btn.classList.toggle('active', btn.textContent.toLowerCase() === level);
       });
       circle.style.transition = `top ${difficultyConfig[level].speed} ease-out, left ${difficultyConfig[level].speed} ease-out, background-color 0.5s ease`;
+      startAutoMove();
     }
 
     function getRandomColor() {
@@ -231,6 +250,13 @@
       }
     }, { passive: true });
 
+    // Mobile: a tap that misses still spooks the circle if it lands close
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length > 0) {
+        checkProximity(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: true });
+
     // Handle hit event (works for both click and touch tap)
     function handleHit(e) {
       e.preventDefault();
@@ -254,6 +280,7 @@
       }
 
       moveCircle();
+      startAutoMove();
     }
 
     circle.addEventListener('click', handleHit);
