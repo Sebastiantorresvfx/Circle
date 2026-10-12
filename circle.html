@@ -89,8 +89,8 @@
       color: white;
     }
 
-    /* The target circle */
-    #circle {
+    /* The target circle (and its mirage copy on Hard) */
+    #circle, .mirage {
       position: absolute;
       width: clamp(80px, 18vw, 120px);
       height: clamp(80px, 18vw, 120px);
@@ -104,6 +104,38 @@
       font-size: clamp(55px, 13vw, 85px);
       line-height: 1;
       transition: top 0.2s ease-out, left 0.2s ease-out, background-color 0.5s ease;
+    }
+
+    .mirage.fizzle {
+      animation: fizzle 0.35s ease-out;
+    }
+
+    @keyframes fizzle {
+      0% { opacity: 1; }
+      50% { opacity: 0.3; }
+      100% { opacity: 1; }
+    }
+
+    #toast {
+      position: absolute;
+      left: 50%;
+      top: 40%;
+      transform: translate(-50%, -50%) scale(0.8);
+      font-size: clamp(28px, 8vw, 44px);
+      font-weight: bold;
+      color: #222;
+      background: rgba(255, 255, 255, 0.85);
+      padding: 8px 20px;
+      border-radius: 14px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      z-index: 15;
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
     }
 
     /* Start / game over panel */
@@ -235,6 +267,7 @@
   </div>
 
   <div id="circle"></div>
+  <div id="toast"></div>
 
   <div id="overlay">
     <div id="panel"></div>
@@ -255,11 +288,23 @@
     const LEADERBOARD_SIZE = 10;
     const RANKED_LEVELS = ['medium', 'hard'];
 
+    // Every 10 hits the circle gets faster
+    const HITS_PER_SPEEDUP = 10;
+    const SPEEDUP_FACTOR = 0.85;   // each step takes 85% of the previous time
+    const MIN_SPEED_FACTOR = 0.35; // never faster than this
+    // Hard only: after 20 hits it sometimes splits into a real ball and a mirage
+    const MIRAGE_FROM_SCORE = 20;
+    const MIRAGE_CHANCE_PER_SECOND = 0.3;
+
     let score = 0;
     let timeLeft = START_SECONDS;
     let playing = false;
     let countdownTimer = null;
     let emojiTimeout = null;
+    let toastTimeout = null;
+    let mirage = null;
+    let mirageTimer = null;
+    let nextSplitAt = 0;
 
     const difficultyConfig = {
       easy: {
@@ -329,12 +374,36 @@
     function startAutoMove() {
       if (autoMoveTimer) clearTimeout(autoMoveTimer);
       if (!isTouchDevice || !playing) return;
-      const base = difficultyConfig[currentDifficulty].autoMoveMs;
+      const base = Math.max(220, difficultyConfig[currentDifficulty].autoMoveMs * speedFactor());
       // Randomize the rhythm a bit so it's harder to predict
       autoMoveTimer = setTimeout(() => {
         moveCircle();
+        if (mirage) moveCircle(undefined, undefined, mirage);
         startAutoMove();
       }, base * (0.6 + Math.random() * 0.8));
+    }
+
+    function speedFactor() {
+      const steps = Math.floor(score / HITS_PER_SPEEDUP);
+      return Math.max(MIN_SPEED_FACTOR, Math.pow(SPEEDUP_FACTOR, steps));
+    }
+
+    function moveTransition() {
+      const secs = Math.max(0.04, parseFloat(difficultyConfig[currentDifficulty].speed) * speedFactor());
+      return `top ${secs}s ease-out, left ${secs}s ease-out, background-color 0.5s ease`;
+    }
+
+    function applySpeed() {
+      circle.style.transition = moveTransition();
+      if (mirage) mirage.style.transition = moveTransition();
+    }
+
+    function showToast(text) {
+      const toast = document.getElementById('toast');
+      toast.textContent = text;
+      toast.classList.add('show');
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => toast.classList.remove('show'), 900);
     }
 
     function getCircleSize() {
@@ -346,7 +415,6 @@
       buttons.forEach(btn => {
         btn.classList.toggle('active', btn.textContent.toLowerCase() === level);
       });
-      circle.style.transition = `top ${difficultyConfig[level].speed} ease-out, left ${difficultyConfig[level].speed} ease-out, background-color 0.5s ease`;
       // Switching mid-game would let you dodge a hard run, so it resets the round
       resetGame();
     }
@@ -368,9 +436,10 @@
       }
       document.body.style.backgroundColor = newBg;
       circle.style.backgroundColor = newCircleColor;
+      if (mirage) mirage.style.backgroundColor = newCircleColor;
     }
 
-    function moveCircle(fromX, fromY) {
+    function moveCircle(fromX, fromY, el = circle) {
       const size = getCircleSize();
       const config = difficultyConfig[currentDifficulty];
       const maxX = window.innerWidth - size - 16;
@@ -384,8 +453,8 @@
         newX = Math.max(16, Math.random() * maxX);
         newY = minY + Math.random() * Math.max(0, maxY - minY);
       } else {
-        const curLeft = parseFloat(circle.style.left) || 0;
-        const curTop = parseFloat(circle.style.top) || 0;
+        const curLeft = parseFloat(el.style.left) || 0;
+        const curTop = parseFloat(el.style.top) || 0;
 
         const dirX = (curLeft + size / 2) - fromX;
         const dirY = (curTop + size / 2) - fromY;
@@ -399,8 +468,8 @@
         newY = Math.max(minY, Math.min(maxY, newY));
       }
 
-      circle.style.left = `${newX}px`;
-      circle.style.top = `${newY}px`;
+      el.style.left = `${newX}px`;
+      el.style.top = `${newY}px`;
     }
 
     function centerCircle() {
@@ -412,10 +481,75 @@
     // Display emoji and set a 5-second timer to clear it
     function showEmoji(emojiChar) {
       circle.textContent = emojiChar;
+      if (mirage) mirage.textContent = emojiChar;
       if (emojiTimeout) clearTimeout(emojiTimeout);
       emojiTimeout = setTimeout(() => {
         circle.textContent = '';
+        if (mirage) mirage.textContent = '';
       }, 5000);
+    }
+
+    // ---- Mirage (Hard only) ----
+    // A copy appears on top of the real ball, then both dart off in different
+    // directions, so you can't tell which is which. Hitting the copy scores nothing.
+    function maybeSplit() {
+      if (currentDifficulty !== 'hard' || score < MIRAGE_FROM_SCORE) return;
+      if (mirage || Date.now() < nextSplitAt) return;
+      if (Math.random() < MIRAGE_CHANCE_PER_SECOND) split();
+    }
+
+    function split() {
+      mirage = document.createElement('div');
+      mirage.className = 'mirage';
+      mirage.style.left = circle.style.left;
+      mirage.style.top = circle.style.top;
+      mirage.style.backgroundColor = circle.style.backgroundColor;
+      mirage.style.transition = moveTransition();
+      mirage.textContent = circle.textContent;
+      mirage.addEventListener('click', handleMirageHit);
+      mirage.addEventListener('touchstart', handleMirageHit, { passive: false });
+      document.body.insertBefore(mirage, circle);
+
+      // Wait a frame so both start from the same spot before they separate
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (!mirage) return;
+        moveCircle();
+        moveCircle(undefined, undefined, mirage);
+      }));
+
+      mirageTimer = setTimeout(reunite, 3000 + Math.random() * 2000);
+    }
+
+    function handleMirageHit(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!playing || !mirage) return;
+      const el = mirage;
+      el.classList.remove('fizzle');
+      void el.offsetWidth; // restart the animation
+      el.classList.add('fizzle');
+      moveCircle(undefined, undefined, el);
+    }
+
+    // The mirage glides back into the real ball and disappears
+    function reunite() {
+      if (!mirage) return;
+      const el = mirage;
+      mirage = null;
+      el.style.pointerEvents = 'none';
+      el.style.transition = 'top 0.45s ease-in, left 0.45s ease-in, opacity 0.45s ease-in';
+      el.style.left = circle.style.left;
+      el.style.top = circle.style.top;
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 500);
+      nextSplitAt = Date.now() + 4000;
+    }
+
+    function clearMirage() {
+      clearTimeout(mirageTimer);
+      if (mirage) mirage.remove();
+      mirage = null;
+      nextSplitAt = 0;
     }
 
     // ---- Timer ----
@@ -435,7 +569,11 @@
     function tick() {
       timeLeft--;
       renderTimer();
-      if (timeLeft <= 0) endGame();
+      if (timeLeft <= 0) {
+        endGame();
+        return;
+      }
+      maybeSplit();
     }
 
     // ---- Game flow ----
@@ -443,7 +581,9 @@
       playing = false;
       clearInterval(countdownTimer);
       startAutoMove(); // stops it while not playing
+      clearMirage();
       score = 0;
+      applySpeed();
       timeLeft = START_SECONDS;
       scoreDisplay.textContent = score;
       renderTimer();
@@ -463,6 +603,7 @@
       playing = false;
       clearInterval(countdownTimer);
       startAutoMove();
+      clearMirage();
       timeLeft = 0;
       renderTimer();
 
@@ -555,8 +696,13 @@
     // Proximity evasion check for both mouse and touch
     function checkProximity(clientX, clientY) {
       if (!playing) return;
+      evadeFrom(circle, clientX, clientY);
+      if (mirage) evadeFrom(mirage, clientX, clientY);
+    }
+
+    function evadeFrom(el, clientX, clientY) {
       const size = getCircleSize();
-      const rect = circle.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
       const centerX = rect.left + size / 2;
       const centerY = rect.top + size / 2;
 
@@ -564,7 +710,7 @@
       const threshold = (size / 2) + difficultyConfig[currentDifficulty].evadeDistance;
 
       if (dist < threshold) {
-        moveCircle(clientX, clientY);
+        moveCircle(clientX, clientY, el);
       }
     }
 
@@ -609,6 +755,11 @@
         showEmoji('😠'); // Angry
       } else if (score === 50) {
         showEmoji('🤬'); // Swearing
+      }
+
+      if (score % HITS_PER_SPEEDUP === 0) {
+        applySpeed();
+        showToast('Faster!');
       }
 
       moveCircle();
