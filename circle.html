@@ -23,7 +23,7 @@
       transition: background-color 0.5s ease;
     }
 
-    /* Top bar for score and difficulty settings */
+    /* Top bar for score, timer and difficulty settings */
     #top-bar {
       position: absolute;
       top: 16px;
@@ -37,7 +37,12 @@
       z-index: 10;
     }
 
-    #score-board {
+    #stats {
+      display: flex;
+      gap: 8px;
+    }
+
+    .stat {
       font-size: clamp(18px, 4vw, 24px);
       font-weight: bold;
       color: #222;
@@ -45,6 +50,22 @@
       padding: 6px 14px;
       border-radius: 12px;
       backdrop-filter: blur(4px);
+      font-variant-numeric: tabular-nums;
+    }
+
+    #timer-board.low {
+      color: #fff;
+      background: rgba(198, 40, 40, 0.9);
+    }
+
+    #timer-board.bump {
+      animation: bump 0.3s ease-out;
+    }
+
+    @keyframes bump {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.18); }
+      100% { transform: scale(1); }
     }
 
     #difficulty-container {
@@ -84,12 +105,128 @@
       line-height: 1;
       transition: top 0.2s ease-out, left 0.2s ease-out, background-color 0.5s ease;
     }
+
+    /* Start / game over panel */
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 20;
+    }
+
+    #overlay.hidden {
+      display: none;
+    }
+
+    #panel {
+      width: 100%;
+      max-width: 360px;
+      max-height: 100%;
+      overflow-y: auto;
+      background: white;
+      color: #222;
+      border-radius: 16px;
+      padding: 20px;
+      text-align: center;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    #panel h1 {
+      margin: 0 0 6px;
+      font-size: 26px;
+    }
+
+    #panel p {
+      margin: 6px 0;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+
+    .big-score {
+      font-size: 44px;
+      font-weight: bold;
+      margin: 4px 0 10px;
+    }
+
+    .panel-btn {
+      margin-top: 14px;
+      padding: 12px 22px;
+      font-size: 17px;
+      font-weight: bold;
+      border: none;
+      border-radius: 10px;
+      background: #222;
+      color: white;
+      cursor: pointer;
+    }
+
+    #initials-form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #initials {
+      width: 130px;
+      padding: 8px;
+      font-size: 30px;
+      font-weight: bold;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 6px;
+      border: 3px solid #222;
+      border-radius: 10px;
+      user-select: text;
+      -webkit-user-select: text;
+      touch-action: manipulation;
+    }
+
+    .board-title {
+      margin: 14px 0 6px;
+      font-size: 16px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .board {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 16px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .board td {
+      padding: 5px 6px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .board td:first-child { width: 30px; color: #888; text-align: right; }
+    .board td:nth-child(2) { text-align: left; font-weight: bold; letter-spacing: 2px; }
+    .board td:last-child { text-align: right; font-weight: bold; }
+
+    .board tr.me td {
+      background: #fff3b0;
+    }
+
+    .muted {
+      color: #777;
+      font-size: 13px !important;
+    }
   </style>
 </head>
 <body>
 
   <div id="top-bar">
-    <div id="score-board">Score: <span id="score">0</span></div>
+    <div id="stats">
+      <div class="stat" id="score-board">Score: <span id="score">0</span></div>
+      <div class="stat" id="timer-board">⏱ <span id="timer">60</span></div>
+    </div>
     <div id="difficulty-container">
       <button class="difficulty-btn" onclick="setDifficulty('easy')">Easy</button>
       <button class="difficulty-btn active" onclick="setDifficulty('medium')">Medium</button>
@@ -99,12 +236,29 @@
 
   <div id="circle"></div>
 
+  <div id="overlay">
+    <div id="panel"></div>
+  </div>
+
   <script>
     const circle = document.getElementById('circle');
     const scoreDisplay = document.getElementById('score');
+    const timerDisplay = document.getElementById('timer');
+    const timerBoard = document.getElementById('timer-board');
+    const overlay = document.getElementById('overlay');
+    const panel = document.getElementById('panel');
     const buttons = document.querySelectorAll('.difficulty-btn');
+    const topBar = document.getElementById('top-bar');
+
+    const START_SECONDS = 60;
+    const SECONDS_PER_HIT = 1;
+    const LEADERBOARD_SIZE = 10;
+    const RANKED_LEVELS = ['medium', 'hard'];
 
     let score = 0;
+    let timeLeft = START_SECONDS;
+    let playing = false;
+    let countdownTimer = null;
     let emojiTimeout = null;
 
     const difficultyConfig = {
@@ -115,10 +269,10 @@
         autoMoveMs: 1400
       },
       medium: {
-        evadeDistance: 60,
-        speed: '0.18s',
-        jumpRange: 300,
-        autoMoveMs: 900
+        evadeDistance: 75,
+        speed: '0.15s',
+        jumpRange: 340,
+        autoMoveMs: 750
       },
       hard: {
         evadeDistance: 100,
@@ -130,13 +284,51 @@
 
     let currentDifficulty = 'medium';
 
+    // ---- Score storage ----
+    // Saved on this device only for now. To share scores between players,
+    // replace load/save with calls to an online database; both are async
+    // so the rest of the game won't need to change.
+    const scoreStore = {
+      key: 'catch-the-ball-leaderboard-v1',
+
+      async load(level) {
+        try {
+          const all = JSON.parse(localStorage.getItem(this.key)) || {};
+          const list = Array.isArray(all[level]) ? all[level] : [];
+          return list.sort((a, b) => b.score - a.score || a.time - b.time).slice(0, LEADERBOARD_SIZE);
+        } catch (e) {
+          return [];
+        }
+      },
+
+      async save(level, entry) {
+        const list = await this.load(level);
+        list.push(entry);
+        const top = list.sort((a, b) => b.score - a.score || a.time - b.time).slice(0, LEADERBOARD_SIZE);
+        try {
+          const all = JSON.parse(localStorage.getItem(this.key)) || {};
+          all[level] = top;
+          localStorage.setItem(this.key, JSON.stringify(all));
+        } catch (e) {
+          // Storage blocked (e.g. private mode) - the board still shows this game
+        }
+        return top;
+      }
+    };
+
+    function qualifies(list, finalScore) {
+      if (finalScore <= 0) return false;
+      if (list.length < LEADERBOARD_SIZE) return true;
+      return finalScore > list[list.length - 1].score;
+    }
+
     // Touch screens have no hover, so on mobile the circle dodges around on its own
     const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
     let autoMoveTimer = null;
 
     function startAutoMove() {
-      if (!isTouchDevice) return;
       if (autoMoveTimer) clearTimeout(autoMoveTimer);
+      if (!isTouchDevice || !playing) return;
       const base = difficultyConfig[currentDifficulty].autoMoveMs;
       // Randomize the rhythm a bit so it's harder to predict
       autoMoveTimer = setTimeout(() => {
@@ -155,7 +347,8 @@
         btn.classList.toggle('active', btn.textContent.toLowerCase() === level);
       });
       circle.style.transition = `top ${difficultyConfig[level].speed} ease-out, left ${difficultyConfig[level].speed} ease-out, background-color 0.5s ease`;
-      startAutoMove();
+      // Switching mid-game would let you dodge a hard run, so it resets the round
+      resetGame();
     }
 
     function getRandomColor() {
@@ -182,12 +375,14 @@
       const config = difficultyConfig[currentDifficulty];
       const maxX = window.innerWidth - size - 16;
       const maxY = window.innerHeight - size - 16;
+      // Keep clear of the top bar, which wraps to two rows on narrow screens
+      const minY = topBar.getBoundingClientRect().bottom + 12;
 
       let newX, newY;
 
       if (config.jumpRange === 'full' || fromX === undefined) {
         newX = Math.max(16, Math.random() * maxX);
-        newY = Math.max(70, Math.random() * maxY); // Avoid top-bar
+        newY = minY + Math.random() * Math.max(0, maxY - minY);
       } else {
         const curLeft = parseFloat(circle.style.left) || 0;
         const curTop = parseFloat(circle.style.top) || 0;
@@ -201,7 +396,7 @@
         newY = curTop + (dirY / length) * pushDist + (Math.random() * 40 - 20);
 
         newX = Math.max(16, Math.min(maxX, newX));
-        newY = Math.max(70, Math.min(maxY, newY));
+        newY = Math.max(minY, Math.min(maxY, newY));
       }
 
       circle.style.left = `${newX}px`;
@@ -223,8 +418,143 @@
       }, 5000);
     }
 
+    // ---- Timer ----
+    function renderTimer() {
+      timerDisplay.textContent = timeLeft;
+      timerBoard.classList.toggle('low', timeLeft <= 10);
+    }
+
+    function addTime(seconds) {
+      timeLeft += seconds;
+      renderTimer();
+      timerBoard.classList.remove('bump');
+      void timerBoard.offsetWidth; // restart the animation
+      timerBoard.classList.add('bump');
+    }
+
+    function tick() {
+      timeLeft--;
+      renderTimer();
+      if (timeLeft <= 0) endGame();
+    }
+
+    // ---- Game flow ----
+    function resetGame() {
+      playing = false;
+      clearInterval(countdownTimer);
+      startAutoMove(); // stops it while not playing
+      score = 0;
+      timeLeft = START_SECONDS;
+      scoreDisplay.textContent = score;
+      renderTimer();
+      circle.textContent = '';
+      centerCircle();
+      showStartPanel();
+    }
+
+    function startGame() {
+      overlay.classList.add('hidden');
+      playing = true;
+      countdownTimer = setInterval(tick, 1000);
+      startAutoMove();
+    }
+
+    async function endGame() {
+      playing = false;
+      clearInterval(countdownTimer);
+      startAutoMove();
+      timeLeft = 0;
+      renderTimer();
+
+      const level = currentDifficulty;
+      if (!RANKED_LEVELS.includes(level)) {
+        showPanel(`
+          <h1>Time's up!</h1>
+          <div class="big-score">${score}</div>
+          <p class="muted">Easy is practice mode. Play Medium or Hard to get on the leaderboard.</p>
+          <button class="panel-btn" id="again-btn">Play again</button>
+        `);
+        return;
+      }
+
+      const list = await scoreStore.load(level);
+      if (qualifies(list, score)) {
+        askInitials(level);
+      } else {
+        showLeaderboard(level, list, null, 'Not quite top ten this time.');
+      }
+    }
+
+    function askInitials(level) {
+      showPanel(`
+        <h1>Top ten!</h1>
+        <div class="big-score">${score}</div>
+        <form id="initials-form" autocomplete="off">
+          <p>Enter your initials</p>
+          <input id="initials" aria-label="Your initials" maxlength="3" autocapitalize="characters" spellcheck="false" required>
+          <button class="panel-btn" type="submit">Save score</button>
+        </form>
+      `, false);
+
+      const input = document.getElementById('initials');
+      input.addEventListener('input', () => {
+        input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      });
+      setTimeout(() => input.focus(), 50);
+
+      document.getElementById('initials-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = input.value.trim();
+        if (!name) return;
+        const entry = { name, score, time: Date.now() };
+        const top = await scoreStore.save(level, entry);
+        showLeaderboard(level, top, entry, 'Nice!');
+      });
+    }
+
+    function showLeaderboard(level, list, myEntry, message) {
+      const rows = list.map((e, i) => `
+        <tr class="${myEntry && e.time === myEntry.time && e.name === myEntry.name ? 'me' : ''}">
+          <td>${i + 1}</td><td>${escapeHtml(e.name)}</td><td>${e.score}</td>
+        </tr>`).join('');
+
+      showPanel(`
+        <h1>Time's up!</h1>
+        <div class="big-score">${score}</div>
+        ${message ? `<p>${message}</p>` : ''}
+        <div class="board-title">${level} top ten</div>
+        ${rows ? `<table class="board">${rows}</table>` : '<p class="muted">No scores yet.</p>'}
+        <button class="panel-btn" id="again-btn">Play again</button>
+      `);
+    }
+
+    function showStartPanel() {
+      const ranked = RANKED_LEVELS.includes(currentDifficulty);
+      showPanel(`
+        <h1>Catch the Ball</h1>
+        <p>You have <b>${START_SECONDS} seconds</b>. Every hit adds <b>+${SECONDS_PER_HIT}s</b>.</p>
+        <p class="muted">${ranked ? `Playing <b>${currentDifficulty}</b> - top ten scores go on the leaderboard.` : 'Easy is practice mode - no leaderboard.'}</p>
+        <button class="panel-btn" id="start-btn">Start</button>
+      `);
+    }
+
+    function showPanel(html, wireButtons = true) {
+      panel.innerHTML = html;
+      overlay.classList.remove('hidden');
+      if (!wireButtons) return;
+      const start = document.getElementById('start-btn');
+      if (start) start.addEventListener('click', startGame);
+      const again = document.getElementById('again-btn');
+      if (again) again.addEventListener('click', () => { resetGame(); });
+    }
+
+    function escapeHtml(text) {
+      return String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
     // Proximity evasion check for both mouse and touch
     function checkProximity(clientX, clientY) {
+      if (!playing) return;
       const size = getCircleSize();
       const rect = circle.getBoundingClientRect();
       const centerX = rect.left + size / 2;
@@ -261,9 +591,11 @@
     function handleHit(e) {
       e.preventDefault();
       e.stopPropagation();
+      if (!playing) return;
 
       score++;
       scoreDisplay.textContent = score;
+      addTime(SECONDS_PER_HIT);
 
       // Randomize colors every 5 hits
       if (score % 5 === 0) {
@@ -288,8 +620,7 @@
 
     // Initialize
     setDifficulty('medium');
-    centerCircle();
-    window.addEventListener('resize', centerCircle);
+    window.addEventListener('resize', () => { if (!playing) centerCircle(); });
   </script>
 </body>
 </html>
