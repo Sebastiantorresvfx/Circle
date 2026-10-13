@@ -300,6 +300,7 @@
       <button class="difficulty-btn" onclick="setDifficulty('easy')">Easy</button>
       <button class="difficulty-btn active" onclick="setDifficulty('medium')">Medium</button>
       <button class="difficulty-btn" onclick="setDifficulty('hard')">Hard</button>
+      <button class="difficulty-btn" id="sound-btn" aria-label="Mute sound" onclick="toggleSound()">🔊</button>
     </div>
   </div>
 
@@ -561,6 +562,7 @@
       e.preventDefault();
       e.stopPropagation();
       if (!playing || !mirage) return;
+      sfx.mirage();
       const el = mirage;
       el.classList.remove('fizzle');
       void el.offsetWidth; // restart the animation
@@ -619,6 +621,7 @@
       clearInterval(countdownTimer);
       startAutoMove(); // stops it while not playing
       clearMirage();
+      music.stop();
       score = 0;
       applySpeed();
       timeLeft = START_SECONDS;
@@ -634,6 +637,7 @@
       playing = true;
       countdownTimer = setInterval(tick, 1000);
       startAutoMove();
+      music.start(); // must start from the tap on Start, or phones won't play audio
     }
 
     async function endGame() {
@@ -641,6 +645,8 @@
       clearInterval(countdownTimer);
       startAutoMove();
       clearMirage();
+      music.stop();
+      sfx.gameOver();
       timeLeft = 0;
       renderTimer();
 
@@ -779,6 +785,7 @@
       score++;
       scoreDisplay.textContent = score;
       addTime(SECONDS_PER_HIT);
+      sfx.hit(score);
 
       // Randomize colors every 5 hits
       if (score % 5 === 0) {
@@ -797,6 +804,7 @@
       if (score % HITS_PER_SPEEDUP === 0) {
         applySpeed();
         showToast('Faster!');
+        music.updateTempo();
       }
 
       moveCircle();
@@ -805,6 +813,212 @@
 
     circle.addEventListener('click', handleHit);
     circle.addEventListener('touchstart', handleHit, { passive: false });
+
+    // ---- Sound ----
+    // Everything is synthesized live with the Web Audio API (no audio files):
+    // an 80s synthwave loop that speeds up with the game, plus hit sounds.
+    const SOUND_PREF_KEY = 'catch-the-ball-muted';
+    let audioCtx = null;
+    let masterGain = null;
+    let noiseBuffer = null;
+    let muted = false;
+    try { muted = localStorage.getItem(SOUND_PREF_KEY) === '1'; } catch (e) {}
+
+    const MUSIC_BASE_BPM = { easy: 100, medium: 112, hard: 124 };
+    const BPM_PER_SPEEDUP = 10;
+    const MAX_BPM = 190;
+
+    function ensureAudio() {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return false;
+      if (!audioCtx) {
+        audioCtx = new Ctx();
+        masterGain = audioCtx.createGain();
+        masterGain.gain.value = muted ? 0 : 0.5;
+        const comp = audioCtx.createDynamicsCompressor();
+        masterGain.connect(comp);
+        comp.connect(audioCtx.destination);
+
+        noiseBuffer = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return true;
+    }
+
+    const midiToFreq = (n) => 440 * Math.pow(2, (n - 69) / 12);
+
+    // One synth note: oscillator -> optional low-pass filter -> volume envelope
+    function synthNote(type, midi, time, duration, volume, filterHz) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.value = midiToFreq(midi);
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(volume, time + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+      let node = osc;
+      if (filterHz) {
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = filterHz;
+        osc.connect(filter);
+        node = filter;
+      }
+      node.connect(gain);
+      gain.connect(masterGain);
+      osc.start(time);
+      osc.stop(time + duration + 0.02);
+    }
+
+    function noiseHit(time, duration, volume, highpassHz) {
+      const src = audioCtx.createBufferSource();
+      src.buffer = noiseBuffer;
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.value = highpassHz;
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(volume, time);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+      src.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGain);
+      src.start(time);
+      src.stop(time + duration + 0.02);
+    }
+
+    function kick(time) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.setValueAtTime(150, time);
+      osc.frequency.exponentialRampToValueAtTime(40, time + 0.12);
+      gain.gain.setValueAtTime(0.9, time);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.2);
+      osc.connect(gain);
+      gain.connect(masterGain);
+      osc.start(time);
+      osc.stop(time + 0.22);
+    }
+
+    // Four bars in A minor: Am - F - C - G, written in 16th-note steps
+    const CHORDS = [[57, 60, 64], [53, 57, 60], [55, 60, 64], [55, 59, 62]];
+    const BASS_ROOTS = [45, 41, 48, 43];
+    // Lead hook, one note per 8th (null = rest)
+    const MELODY = [
+      [76, null, 74, 76, 72, null, 69, null],
+      [72, null, 74, 72, 69, null, 65, null],
+      [67, null, 72, 74, 76, null, 72, null],
+      [74, null, 71, 67, 74, null, null, null]
+    ];
+    const ARP_PATTERN = [0, 1, 2, 1];
+
+    const music = {
+      timer: null,
+      step: 0,
+      nextTime: 0,
+      bpm: 112,
+
+      start() {
+        if (!ensureAudio()) return;
+        this.stop();
+        this.updateTempo();
+        this.step = 0;
+        this.nextTime = audioCtx.currentTime + 0.06;
+        // Schedule slightly ahead of time so timing stays tight
+        this.timer = setInterval(() => this.schedule(), 25);
+      },
+
+      stop() {
+        clearInterval(this.timer);
+        this.timer = null;
+      },
+
+      updateTempo() {
+        const steps = Math.floor(score / HITS_PER_SPEEDUP);
+        this.bpm = Math.min(MAX_BPM, MUSIC_BASE_BPM[currentDifficulty] + steps * BPM_PER_SPEEDUP);
+      },
+
+      schedule() {
+        while (this.nextTime < audioCtx.currentTime + 0.12) {
+          this.playStep(this.step, this.nextTime);
+          this.nextTime += 60 / this.bpm / 4;
+          this.step = (this.step + 1) % 64;
+        }
+      },
+
+      playStep(step, t) {
+        const bar = Math.floor(step / 16);
+        const s = step % 16;
+        const sixteenth = 60 / this.bpm / 4;
+
+        // Drums: kick on 1 and 3, snare on 2 and 4, closed hats on every 8th
+        if (s % 8 === 0) kick(t);
+        if (s % 8 === 4) noiseHit(t, 0.14, 0.35, 1500);
+        if (s % 2 === 0) noiseHit(t, 0.03, 0.08, 7000);
+
+        // Pumping octave bass on 8ths
+        if (s % 2 === 0) {
+          const root = BASS_ROOTS[bar] + (s % 4 === 2 ? 12 : 0);
+          synthNote('sawtooth', root, t, sixteenth * 1.8, 0.22, 900);
+        }
+
+        // Fast arpeggio an octave up
+        const chord = CHORDS[bar];
+        synthNote('square', chord[ARP_PATTERN[s % 4]] + 12, t, sixteenth * 0.9, 0.035, 3000);
+
+        // Lead melody
+        if (s % 2 === 0) {
+          const note = MELODY[bar][s / 2];
+          if (note) synthNote('square', note, t, sixteenth * 1.9, 0.09, 4000);
+        }
+      }
+    };
+
+    const sfx = {
+      // Bright two-note blip that climbs a pentatonic scale as you score
+      hit(n) {
+        if (!ensureAudio()) return;
+        const scale = [0, 3, 5, 7, 10];
+        const i = (n - 1) % 10;
+        const note = 79 + scale[i % 5] + (i >= 5 ? 12 : 0);
+        const t = audioCtx.currentTime;
+        synthNote('square', note, t, 0.07, 0.16);
+        synthNote('square', note + 7, t + 0.05, 0.1, 0.13);
+      },
+
+      // Low buzz for hitting the fake ball
+      mirage() {
+        if (!ensureAudio()) return;
+        const t = audioCtx.currentTime;
+        synthNote('sawtooth', 43, t, 0.18, 0.2, 700);
+        synthNote('sawtooth', 44, t, 0.18, 0.15, 700);
+      },
+
+      // Falling "game over" jingle
+      gameOver() {
+        if (!audioCtx) return;
+        const t = audioCtx.currentTime + 0.05;
+        [72, 67, 64, 60].forEach((note, i) => {
+          synthNote('square', note, t + i * 0.16, 0.22, 0.12, 3000);
+        });
+      }
+    };
+
+    function renderSoundButton() {
+      const btn = document.getElementById('sound-btn');
+      btn.textContent = muted ? '🔇' : '🔊';
+      btn.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound');
+    }
+
+    function toggleSound() {
+      muted = !muted;
+      try { localStorage.setItem(SOUND_PREF_KEY, muted ? '1' : '0'); } catch (e) {}
+      if (masterGain) masterGain.gain.value = muted ? 0 : 0.5;
+      renderSoundButton();
+    }
+
+    renderSoundButton();
 
     // ---- Tap marks ----
     // Every tap or click during a round leaves a mark that fades over 3 seconds.
@@ -820,7 +1034,7 @@
 
     // Capture phase so it sees the tap before the hit handlers stop it
     window.addEventListener('pointerdown', (e) => {
-      if (!playing) return;
+      if (!playing || (e.target instanceof Element && e.target.closest('button'))) return;
       addTapMark(e.clientX, e.clientY, e.target === circle);
     }, true);
 
