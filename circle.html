@@ -209,6 +209,11 @@
     .effect.green { background: linear-gradient(180deg, #4ff58d, #00873e); box-shadow: 0 0 10px rgba(0, 230, 118, 0.7); }
     .effect.black { background: linear-gradient(180deg, #3a2a55, #0b0418); border-color: #b388ff; box-shadow: 0 0 10px rgba(179, 136, 255, 0.8); }
 
+    /* Current level, always shown first on the badge row during a round */
+    .effect.level-easy { background: linear-gradient(180deg, #4ff58d, #00a152); box-shadow: 0 0 10px rgba(0, 230, 118, 0.6); }
+    .effect.level-medium { background: linear-gradient(180deg, #ffb74d, #f45d00); box-shadow: 0 0 10px rgba(255, 145, 0, 0.6); }
+    .effect.level-hard { background: linear-gradient(180deg, #ff6e8a, #d1003a); box-shadow: 0 0 10px rgba(255, 23, 68, 0.6); }
+
     .mirage.fizzle {
       animation: fizzle 0.35s ease-out;
     }
@@ -959,7 +964,8 @@
 
     function renderEffects() {
       const labels = { red: '⚡ Fast', gold: '2× Points', green: '◎ Big zone', black: '☠ Minus points' };
-      document.getElementById('effects').innerHTML = Object.keys(labels)
+      const level = playing ? `<span class="effect level-${currentDifficulty}">Level: ${currentDifficulty}</span>` : '';
+      document.getElementById('effects').innerHTML = level + Object.keys(labels)
         .filter(isActive)
         .map(t => `<span class="effect ${t}">${labels[t]} ${Math.ceil((effectEnds[t] - Date.now()) / 1000)}</span>`)
         .join('');
@@ -1090,6 +1096,7 @@
       nextGemAt = Date.now() + randomBetween(GEM_FIRST_DELAY_MS);
       countdownTimer = setInterval(tick, 1000);
       startAutoMove();
+      renderEffects(); // shows the level badge
       music.start(); // must start from the tap on Start, or phones won't play audio
     }
 
