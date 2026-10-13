@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Catch the Ball</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
   <style>
     * {
       box-sizing: border-box;
@@ -224,7 +227,7 @@
       100% { opacity: 0; transform: scale(1); }
     }
 
-    /* Start / game over panel */
+    /* ---- Start / game over popup: 80s arcade neon look ---- */
     #overlay {
       position: absolute;
       inset: 0;
@@ -232,7 +235,9 @@
       justify-content: center;
       align-items: center;
       padding: 16px;
-      background: rgba(0, 0, 0, 0.45);
+      background: radial-gradient(circle at 50% 40%, rgba(40, 10, 80, 0.55), rgba(5, 0, 20, 0.8));
+      -webkit-backdrop-filter: blur(3px);
+      backdrop-filter: blur(3px);
       z-index: 20;
     }
 
@@ -241,16 +246,54 @@
     }
 
     #panel {
+      position: relative;
       width: 100%;
       max-width: 360px;
       max-height: 100%;
       overflow-y: auto;
-      background: white;
-      color: #222;
-      border-radius: 16px;
-      padding: 20px;
+      padding: 22px 20px 26px;
       text-align: center;
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+      color: #f3ecff;
+      border-radius: 20px;
+      border: 3px solid #ff3cac;
+      /* Night sky: a few stars over a purple-to-magenta gradient */
+      background:
+        radial-gradient(1.5px 1.5px at 12% 14%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 78% 9%, #fff 50%, transparent 51%),
+        radial-gradient(1.5px 1.5px at 88% 30%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 25% 38%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 62% 22%, #fff 50%, transparent 51%),
+        radial-gradient(1.5px 1.5px at 8% 55%, #fff 50%, transparent 51%),
+        linear-gradient(180deg, #120533 0%, #2a0a52 55%, #5a0f6e 100%);
+      box-shadow:
+        0 0 0 3px #120533,
+        0 0 28px rgba(255, 60, 172, 0.75),
+        inset 0 0 28px rgba(0, 229, 255, 0.18);
+    }
+
+    /* Glowing perspective grid along the bottom of the popup */
+    #panel::after {
+      content: '';
+      position: absolute;
+      left: -40%;
+      right: -40%;
+      bottom: 0;
+      height: 130px;
+      background-image:
+        linear-gradient(rgba(0, 229, 255, 0.45) 2px, transparent 2px),
+        linear-gradient(90deg, rgba(0, 229, 255, 0.45) 2px, transparent 2px);
+      background-size: 28px 22px;
+      transform: perspective(160px) rotateX(55deg);
+      transform-origin: bottom;
+      -webkit-mask-image: linear-gradient(to top, #000 10%, transparent 100%);
+      mask-image: linear-gradient(to top, #000 10%, transparent 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    #panel > * {
+      position: relative;
+      z-index: 1;
     }
 
     /* The only place that may scroll: a long leaderboard on a short screen */
@@ -261,8 +304,15 @@
     /* Start screen */
     .hero-ball {
       display: block;
-      margin: 0 auto 4px;
+      margin: 0 auto 2px;
       overflow: visible;
+      /* Cycles through the rainbow, one shade per bounce */
+      animation: hero-colors 4.2s linear infinite;
+    }
+
+    @keyframes hero-colors {
+      from { filter: drop-shadow(0 0 14px rgba(105, 240, 174, 0.6)) hue-rotate(0deg); }
+      to { filter: drop-shadow(0 0 14px rgba(105, 240, 174, 0.6)) hue-rotate(360deg); }
     }
 
     .hero-bounce {
@@ -284,52 +334,120 @@
       to { transform: scaleX(0.8); opacity: 0.6; }
     }
 
+    /* Arcade logo: chunky font, sunset gradient, outline and 3D shadow */
     .game-title {
-      font-size: 32px !important;
-      letter-spacing: 1px;
+      margin: 0 0 22px;
+      font-family: 'Bungee', Impact, 'Arial Black', sans-serif;
+      font-weight: 400;
+      line-height: 0.95;
+      transform: rotate(-4deg);
+      animation: title-pop 1.4s ease-in-out infinite alternate;
+    }
+
+    .title-top {
+      display: block;
+      font-size: 20px;
+      letter-spacing: 5px;
+      color: #00e5ff;
+      text-shadow: 0 0 8px rgba(0, 229, 255, 0.9);
+    }
+
+    .title-main {
+      display: block;
+      font-size: 72px;
+      letter-spacing: 2px;
+      color: #ffd54f;
+      -webkit-text-stroke: 2px #120533;
+      /* Stacked shadows build a chunky 3D sunset edge under the letters */
+      text-shadow:
+        0 3px 0 #ff9100,
+        0 6px 0 #ff3d00,
+        0 9px 0 #ff1f6b,
+        4px 12px 0 #120533,
+        0 0 18px rgba(255, 60, 172, 0.8);
+    }
+
+    @keyframes title-pop {
+      from { transform: rotate(-4deg) scale(1); }
+      to { transform: rotate(-4deg) scale(1.05); }
+    }
+
+    .tagline {
+      color: #d7c8ff;
+    }
+
+    .tagline b {
+      color: #fff59d;
     }
 
     .level-buttons {
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      margin-top: 14px;
+      gap: 12px;
+      margin-top: 16px;
     }
 
     .level-btn {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 2px;
+      gap: 3px;
       width: 100%;
-      padding: 12px;
-      font-size: 22px;
-      font-weight: bold;
+      padding: 11px 12px 10px;
+      font-family: 'Bungee', Impact, 'Arial Black', sans-serif;
+      font-size: 24px;
+      font-weight: 400;
+      letter-spacing: 1px;
       color: white;
-      border: none;
-      border-radius: 12px;
+      text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+      border: 2px solid rgba(255, 255, 255, 0.55);
+      border-radius: 14px;
       cursor: pointer;
-      box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
-    }
-
-    .level-btn:active {
-      transform: translateY(3px);
-      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
     }
 
     .level-btn small {
-      font-size: 13px;
-      font-weight: normal;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      text-shadow: none;
       opacity: 0.9;
     }
 
-    .level-btn.easy { background: #2e7d32; }
-    .level-btn.medium { background: #ef6c00; }
-    .level-btn.hard { background: #c62828; }
+    .level-btn.easy {
+      background: linear-gradient(180deg, #4ff58d, #00a152);
+      box-shadow: 0 5px 0 #005a2d, 0 0 16px rgba(0, 230, 118, 0.55);
+    }
 
+    .level-btn.medium {
+      background: linear-gradient(180deg, #ffb74d, #f45d00);
+      box-shadow: 0 5px 0 #8a3200, 0 0 16px rgba(255, 145, 0, 0.55);
+    }
+
+    .level-btn.hard {
+      background: linear-gradient(180deg, #ff6e8a, #d1003a);
+      box-shadow: 0 5px 0 #6e001e, 0 0 16px rgba(255, 23, 68, 0.6);
+    }
+
+    .level-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .level-btn:active {
+      transform: translateY(4px);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+    }
+
+    /* Headings like "Time's up!" and "Top ten!" */
     #panel h1 {
-      margin: 0 0 6px;
-      font-size: 26px;
+      margin: 0 0 4px;
+      font-family: 'Bungee', Impact, 'Arial Black', sans-serif;
+      font-weight: 400;
+      font-size: 30px;
+      color: #00e5ff;
+      text-shadow: 3px 3px 0 #120533, 0 0 12px rgba(0, 229, 255, 0.8);
     }
 
     #panel p {
@@ -339,21 +457,32 @@
     }
 
     .big-score {
-      font-size: 44px;
-      font-weight: bold;
-      margin: 4px 0 10px;
+      margin: 2px 0 8px;
+      font-family: 'Bungee', Impact, 'Arial Black', sans-serif;
+      font-size: 56px;
+      line-height: 1.1;
+      color: #fff59d;
+      text-shadow: 3px 3px 0 #ff1f6b, 0 0 18px rgba(255, 213, 79, 0.8);
     }
 
     .panel-btn {
-      margin-top: 14px;
-      padding: 12px 22px;
-      font-size: 17px;
-      font-weight: bold;
-      border: none;
-      border-radius: 10px;
-      background: #222;
+      margin-top: 16px;
+      padding: 12px 26px;
+      font-family: 'Bungee', Impact, 'Arial Black', sans-serif;
+      font-size: 18px;
+      font-weight: 400;
+      letter-spacing: 1px;
       color: white;
+      border: 2px solid rgba(255, 255, 255, 0.55);
+      border-radius: 14px;
+      background: linear-gradient(180deg, #ff6ec7, #d4007f);
+      box-shadow: 0 5px 0 #6a0047, 0 0 16px rgba(255, 60, 172, 0.6);
       cursor: pointer;
+    }
+
+    .panel-btn:active {
+      transform: translateY(4px);
+      box-shadow: 0 1px 0 #6a0047;
     }
 
     #name-form {
@@ -370,19 +499,25 @@
       font-size: 20px; /* 16px+ stops iPhones zooming in on the box */
       font-weight: bold;
       text-align: center;
-      border: 3px solid #222;
-      border-radius: 10px;
+      color: white;
+      background: rgba(10, 2, 30, 0.75);
+      border: 3px solid #00e5ff;
+      border-radius: 12px;
+      box-shadow: 0 0 12px rgba(0, 229, 255, 0.6);
+      outline: none;
       user-select: text;
       -webkit-user-select: text;
       touch-action: manipulation;
     }
 
     .board-title {
-      margin: 14px 0 6px;
-      font-size: 16px;
-      font-weight: bold;
+      margin: 14px 0 8px;
+      font-family: 'Bungee', Impact, 'Arial Black', sans-serif;
+      font-size: 17px;
+      letter-spacing: 2px;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      color: #ff6ec7;
+      text-shadow: 0 0 8px rgba(255, 60, 172, 0.8);
     }
 
     .board {
@@ -390,14 +525,20 @@
       border-collapse: collapse;
       font-size: 16px;
       font-variant-numeric: tabular-nums;
+      background: rgba(10, 2, 30, 0.45);
+      border-radius: 10px;
     }
 
     .board td {
-      padding: 5px 6px;
-      border-bottom: 1px solid #eee;
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
 
-    .board td:first-child { width: 30px; color: #888; text-align: right; }
+    .board tr:last-child td {
+      border-bottom: none;
+    }
+
+    .board td:first-child { width: 30px; color: #b39ddb; text-align: right; }
     .board td:nth-child(2) {
       text-align: left;
       font-weight: bold;
@@ -407,14 +548,19 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .board td:last-child { text-align: right; font-weight: bold; }
+    .board td:last-child { text-align: right; font-weight: bold; color: #fff59d; }
+
+    /* Gold, silver and bronze for the top three */
+    .board tr:nth-child(1) td:first-child { color: #ffd54f; }
+    .board tr:nth-child(2) td:first-child { color: #e0e0e0; }
+    .board tr:nth-child(3) td:first-child { color: #ffab91; }
 
     .board tr.me td {
-      background: #fff3b0;
+      background: rgba(255, 60, 172, 0.35);
     }
 
     .muted {
-      color: #777;
+      color: #b39ddb;
       font-size: 13px !important;
     }
   </style>
@@ -969,8 +1115,11 @@
             <ellipse cx="42" cy="36" rx="14" ry="8" fill="rgba(255, 255, 255, 0.45)" transform="rotate(-30 42 36)"/>
           </g>
         </svg>
-        <h1 class="game-title">Catch the Ball</h1>
-        <p>You have <b>${START_SECONDS} seconds</b>. Every hit adds <b>+${SECONDS_PER_HIT}s</b>.</p>
+        <h1 class="game-title" aria-label="Catch the Ball">
+          <span class="title-top" aria-hidden="true">Catch the</span>
+          <span class="title-main" aria-hidden="true">Ball</span>
+        </h1>
+        <p class="tagline">You have <b>${START_SECONDS} seconds</b>. Every hit adds <b>+${SECONDS_PER_HIT}s</b>.</p>
         <div class="level-buttons">
           <button class="level-btn easy" data-level="easy">Easy<small>Practice</small></button>
           <button class="level-btn medium" data-level="medium">Medium<small>Top ten leaderboard</small></button>
