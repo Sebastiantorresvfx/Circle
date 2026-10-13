@@ -111,6 +111,63 @@
       z-index: 5; /* Above the tap marks */
     }
 
+    /* Emoji and diamond sit inside the ball but never catch taps themselves */
+    .emoji, .gem {
+      pointer-events: none;
+    }
+
+    /* Bonus diamonds that appear on the ball */
+    .gem {
+      position: absolute;
+      left: 31%;
+      top: 31%;
+      width: 38%;
+      height: 38%;
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      border-radius: 4px;
+      animation: gem-pulse 0.5s ease-in-out infinite alternate;
+    }
+
+    .gem.blue { background: linear-gradient(135deg, #b3e5fc, #1e88e5); box-shadow: 0 0 14px #42a5f5; }
+    .gem.red { background: linear-gradient(135deg, #ff8a80, #d50000); box-shadow: 0 0 14px #ff5252; }
+    .gem.gold { background: linear-gradient(135deg, #fff59d, #ffa000); box-shadow: 0 0 14px #ffd740; }
+    .gem.green { background: linear-gradient(135deg, #b9f6ca, #00c853); box-shadow: 0 0 14px #69f0ae; }
+
+    @keyframes gem-pulse {
+      from { transform: rotate(45deg) scale(0.85); }
+      to { transform: rotate(45deg) scale(1.1); }
+    }
+
+    /* Green diamond: shows the bigger hit zone around the real ball */
+    #circle.big-zone {
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 60px rgba(0, 230, 118, 0.2);
+    }
+
+    /* Active bonus timers under the score */
+    #effects {
+      flex-basis: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    #effects:empty {
+      display: none;
+    }
+
+    .effect {
+      font-size: 14px;
+      font-weight: bold;
+      color: white;
+      padding: 4px 10px;
+      border-radius: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .effect.red { background: #d50000; }
+    .effect.gold { background: #ff8f00; }
+    .effect.green { background: #00a844; }
+
     .mirage.fizzle {
       animation: fizzle 0.35s ease-out;
     }
@@ -302,9 +359,10 @@
       <button class="difficulty-btn" onclick="setDifficulty('hard')">Hard</button>
       <button class="difficulty-btn" id="sound-btn" aria-label="Mute sound" onclick="toggleSound()">🔊</button>
     </div>
+    <div id="effects"></div>
   </div>
 
-  <div id="circle"></div>
+  <div id="circle"><span class="emoji"></span></div>
   <div id="toast"></div>
 
   <div id="overlay">
@@ -334,6 +392,24 @@
     const MIRAGE_FROM_SCORE = 20;
     const MIRAGE_CHANCE_PER_SECOND = 0.3;
 
+    // Bonus diamonds: one at a time, shown on the ball for a few seconds.
+    // You still have to hit the moving ball to collect one.
+    const GEM_TYPES = {
+      blue: { weight: 30 },  // +5 seconds
+      red: { weight: 25 },   // ball moves faster for 5 seconds
+      gold: { weight: 20 },  // double points for 10 seconds
+      green: { weight: 25 }  // near misses count as hits for 5 seconds
+    };
+    const GEM_VISIBLE_MS = 3000;
+    const GEM_FIRST_DELAY_MS = [8000, 14000];
+    const GEM_GAP_MS = [10000, 18000]; // wait after a diamond goes away
+    const BLUE_BONUS_SECONDS = 5;
+    const RED_SECONDS = 5;
+    const RED_SPEED_FACTOR = 0.6;      // 40% faster
+    const GOLD_SECONDS = 10;
+    const GREEN_SECONDS = 5;
+    const GREEN_RANGE_PX = 60;         // how close a tap must be to count
+
     let score = 0;
     let timeLeft = START_SECONDS;
     let playing = false;
@@ -343,6 +419,11 @@
     let mirage = null;
     let mirageTimer = null;
     let nextSplitAt = 0;
+    let gemType = null;
+    let gemTimer = null;
+    let nextGemAt = 0;
+    const effectEnds = { red: 0, gold: 0, green: 0 };
+    let effectTimers = [];
 
     const difficultyConfig = {
       easy: {
@@ -423,7 +504,8 @@
 
     function speedFactor() {
       const steps = Math.floor(score / HITS_PER_SPEEDUP);
-      return Math.max(MIN_SPEED_FACTOR, Math.pow(SPEEDUP_FACTOR, steps));
+      const base = Math.max(MIN_SPEED_FACTOR, Math.pow(SPEEDUP_FACTOR, steps));
+      return isActive('red') ? base * RED_SPEED_FACTOR : base;
     }
 
     function moveTransition() {
@@ -517,14 +599,96 @@
     }
 
     // Display emoji and set a 5-second timer to clear it
+    function setEmoji(emojiChar) {
+      document.querySelectorAll('.emoji').forEach(el => { el.textContent = emojiChar; });
+    }
+
     function showEmoji(emojiChar) {
-      circle.textContent = emojiChar;
-      if (mirage) mirage.textContent = emojiChar;
+      setEmoji(emojiChar);
       if (emojiTimeout) clearTimeout(emojiTimeout);
-      emojiTimeout = setTimeout(() => {
-        circle.textContent = '';
-        if (mirage) mirage.textContent = '';
-      }, 5000);
+      emojiTimeout = setTimeout(() => setEmoji(''), 5000);
+    }
+
+    // ---- Bonus diamonds ----
+    const randomBetween = ([min, max]) => min + Math.random() * (max - min);
+    const isActive = (type) => Date.now() < effectEnds[type];
+
+    function pickGemType() {
+      const types = Object.keys(GEM_TYPES);
+      const total = types.reduce((sum, t) => sum + GEM_TYPES[t].weight, 0);
+      let roll = Math.random() * total;
+      for (const t of types) {
+        roll -= GEM_TYPES[t].weight;
+        if (roll < 0) return t;
+      }
+      return types[0];
+    }
+
+    function maybeSpawnGem() {
+      if (!playing || gemType || Date.now() < nextGemAt) return;
+      gemType = pickGemType();
+      // The mirage shows the same diamond so it doesn't give away the real ball
+      [circle, mirage].forEach(el => {
+        if (!el) return;
+        const gem = document.createElement('span');
+        gem.className = `gem ${gemType}`;
+        el.appendChild(gem);
+      });
+      sfx.gemAppear();
+      gemTimer = setTimeout(removeGem, GEM_VISIBLE_MS);
+    }
+
+    function removeGem() {
+      clearTimeout(gemTimer);
+      gemType = null;
+      document.querySelectorAll('.gem').forEach(g => g.remove());
+      nextGemAt = Date.now() + randomBetween(GEM_GAP_MS);
+    }
+
+    function collectGem() {
+      const type = gemType;
+      removeGem();
+      sfx.gem(type);
+
+      if (type === 'blue') {
+        addTime(BLUE_BONUS_SECONDS);
+        showToast(`+${BLUE_BONUS_SECONDS} seconds`);
+        return;
+      }
+
+      const seconds = { red: RED_SECONDS, gold: GOLD_SECONDS, green: GREEN_SECONDS }[type];
+      effectEnds[type] = Date.now() + seconds * 1000;
+      showToast({ red: 'Too fast!', gold: 'Double points!', green: 'Big hit zone!' }[type]);
+
+      if (type === 'red') applySpeed();
+      if (type === 'green') circle.classList.add('big-zone');
+
+      // Switch the effect off exactly when it runs out
+      effectTimers.push(setTimeout(() => {
+        if (type === 'red') applySpeed();
+        if (type === 'green') circle.classList.remove('big-zone');
+        renderEffects();
+      }, seconds * 1000 + 20));
+      renderEffects();
+    }
+
+    function renderEffects() {
+      const labels = { red: '⚡ Fast', gold: '2× Points', green: '◎ Big zone' };
+      document.getElementById('effects').innerHTML = Object.keys(labels)
+        .filter(isActive)
+        .map(t => `<span class="effect ${t}">${labels[t]} ${Math.ceil((effectEnds[t] - Date.now()) / 1000)}</span>`)
+        .join('');
+    }
+
+    function clearBonuses() {
+      clearTimeout(gemTimer);
+      gemType = null;
+      document.querySelectorAll('.gem').forEach(g => g.remove());
+      effectTimers.forEach(clearTimeout);
+      effectTimers = [];
+      Object.keys(effectEnds).forEach(t => { effectEnds[t] = 0; });
+      circle.classList.remove('big-zone');
+      renderEffects();
     }
 
     // ---- Mirage (Hard only) ----
@@ -543,7 +707,7 @@
       mirage.style.top = circle.style.top;
       mirage.style.backgroundColor = circle.style.backgroundColor;
       mirage.style.transition = moveTransition();
-      mirage.textContent = circle.textContent;
+      mirage.innerHTML = circle.innerHTML; // same emoji and diamond as the real ball
       mirage.addEventListener('click', handleMirageHit);
       mirage.addEventListener('touchstart', handleMirageHit, { passive: false });
       document.body.insertBefore(mirage, circle);
@@ -613,6 +777,8 @@
         return;
       }
       maybeSplit();
+      maybeSpawnGem();
+      renderEffects();
     }
 
     // ---- Game flow ----
@@ -621,13 +787,14 @@
       clearInterval(countdownTimer);
       startAutoMove(); // stops it while not playing
       clearMirage();
+      clearBonuses();
       music.stop();
       score = 0;
       applySpeed();
       timeLeft = START_SECONDS;
       scoreDisplay.textContent = score;
       renderTimer();
-      circle.textContent = '';
+      setEmoji('');
       centerCircle();
       showStartPanel();
     }
@@ -635,6 +802,7 @@
     function startGame() {
       overlay.classList.add('hidden');
       playing = true;
+      nextGemAt = Date.now() + randomBetween(GEM_FIRST_DELAY_MS);
       countdownTimer = setInterval(tick, 1000);
       startAutoMove();
       music.start(); // must start from the tap on Start, or phones won't play audio
@@ -645,6 +813,7 @@
       clearInterval(countdownTimer);
       startAutoMove();
       clearMirage();
+      clearBonuses();
       music.stop();
       sfx.gameOver();
       timeLeft = 0;
@@ -780,28 +949,39 @@
     function handleHit(e) {
       e.preventDefault();
       e.stopPropagation();
+      registerHit();
+    }
+
+    function registerHit() {
       if (!playing) return;
 
-      score++;
+      const before = score;
+      score += isActive('gold') ? 2 : 1;
+      // Double points can jump past a multiple, so check for crossing it
+      const passed = (n) => Math.floor(before / n) < Math.floor(score / n);
+      const reached = (n) => before < n && score >= n;
+
       scoreDisplay.textContent = score;
       addTime(SECONDS_PER_HIT);
       sfx.hit(score);
 
-      // Randomize colors every 5 hits
-      if (score % 5 === 0) {
+      // Randomize colors every 5 points
+      if (passed(5)) {
         randomizeColors();
       }
 
       // Milestones for emojis (disappears after 5 seconds)
-      if (score === 10) {
-        showEmoji('🙁'); // Sad
-      } else if (score === 20) {
-        showEmoji('😠'); // Angry
-      } else if (score === 50) {
+      if (reached(50)) {
         showEmoji('🤬'); // Swearing
+      } else if (reached(20)) {
+        showEmoji('😠'); // Angry
+      } else if (reached(10)) {
+        showEmoji('🙁'); // Sad
       }
 
-      if (score % HITS_PER_SPEEDUP === 0) {
+      if (gemType) collectGem();
+
+      if (passed(HITS_PER_SPEEDUP)) {
         applySpeed();
         showToast('Faster!');
         music.updateTempo();
@@ -1073,6 +1253,27 @@
         synthNote('sawtooth', 44, t, 0.18, 0.15, 700);
       },
 
+      // Soft sparkle when a diamond appears
+      gemAppear() {
+        if (!audioCtx) return;
+        const t = audioCtx.currentTime;
+        synthNote('triangle', 88, t, 0.08, 0.08);
+        synthNote('triangle', 93, t + 0.07, 0.12, 0.07);
+      },
+
+      // Collect jingle: rising for good diamonds, falling for the red one
+      gem(type) {
+        if (!ensureAudio()) return;
+        const t = audioCtx.currentTime;
+        const notes = {
+          blue: [72, 76, 79, 84],
+          gold: [76, 79, 84, 88],
+          green: [67, 71, 74, 79],
+          red: [84, 79, 75, 72]
+        }[type];
+        notes.forEach((note, i) => synthNote('square', note, t + i * 0.06, 0.1, 0.11, 5000));
+      },
+
       // Falling "game over" jingle
       gameOver() {
         if (!audioCtx) return;
@@ -1112,8 +1313,21 @@
 
     // Capture phase so it sees the tap before the hit handlers stop it
     window.addEventListener('pointerdown', (e) => {
-      if (!playing || (e.target instanceof Element && e.target.closest('button'))) return;
-      addTapMark(e.clientX, e.clientY, e.target === circle);
+      const target = e.target instanceof Element ? e.target : null;
+      if (!playing || (target && target.closest('button'))) return;
+      let isHit = !!(target && target.closest('#circle'));
+
+      // Green diamond: a tap close to the real ball counts as a hit
+      if (!isHit && isActive('green') && !(target && target.closest('.mirage'))) {
+        const r = circle.getBoundingClientRect();
+        const dist = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
+        if (dist <= r.width / 2 + GREEN_RANGE_PX) {
+          isHit = true;
+          registerHit();
+        }
+      }
+
+      addTapMark(e.clientX, e.clientY, isHit);
     }, true);
 
     // ---- Lock the screen in place ----
