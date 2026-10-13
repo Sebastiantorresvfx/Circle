@@ -250,7 +250,9 @@
       width: 100%;
       max-width: 360px;
       max-height: 100%;
-      overflow-y: auto;
+      overflow-x: hidden; /* the neon grid is wider than the panel */
+      overflow-y: auto;   /* only kicks in on very short screens */
+      scrollbar-width: none;
       padding: 22px 20px 26px;
       text-align: center;
       color: #f3ecff;
@@ -271,12 +273,16 @@
         inset 0 0 28px rgba(0, 229, 255, 0.18);
     }
 
+    #panel::-webkit-scrollbar {
+      display: none;
+    }
+
     /* Glowing perspective grid along the bottom of the popup */
     #panel::after {
       content: '';
       position: absolute;
-      left: -40%;
-      right: -40%;
+      left: 0;
+      right: 0;
       bottom: 0;
       height: 130px;
       background-image:
@@ -562,6 +568,25 @@
     .muted {
       color: #b39ddb;
       font-size: 13px !important;
+    }
+
+    /* Shorter windows: shrink the start screen so it fits without scrolling */
+    @media (max-height: 780px) {
+      #panel { padding: 16px 18px 20px; }
+      .hero-ball { width: 84px; height: 91px; }
+      .title-top { font-size: 17px; }
+      .title-main { font-size: 56px; }
+      .game-title { margin-bottom: 18px; }
+      .level-buttons { gap: 9px; margin-top: 12px; }
+      .level-btn { padding: 8px 12px 7px; font-size: 20px; }
+      .big-score { font-size: 46px; }
+      .board td { padding: 4px 8px; }
+    }
+
+    @media (max-height: 600px) {
+      .hero-ball { display: none !important; }
+      .title-main { font-size: 46px; }
+      .level-btn small { display: none; }
     }
   </style>
 </head>
