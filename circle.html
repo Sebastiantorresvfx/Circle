@@ -139,8 +139,9 @@
     /* The target circle (and its mirage copy on Hard) */
     #circle, .mirage {
       position: absolute;
-      width: clamp(80px, 18vw, 120px);
-      height: clamp(80px, 18vw, 120px);
+      /* --ball-scale shrinks the ball in overdrive (past 100 points) */
+      width: calc(clamp(80px, 18vw, 120px) * var(--ball-scale, 1));
+      height: calc(clamp(80px, 18vw, 120px) * var(--ball-scale, 1));
       background-color: #2e7d32;
       border-radius: 50%;
       cursor: pointer;
@@ -148,7 +149,7 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      font-size: clamp(55px, 13vw, 85px);
+      font-size: calc(clamp(55px, 13vw, 85px) * var(--ball-scale, 1));
       line-height: 1;
       transition: top 0.2s ease-out, left 0.2s ease-out, background-color 0.5s ease;
       z-index: 5; /* Above the tap marks */
@@ -693,6 +694,18 @@
     const MIRAGE_FROM_SCORE = 20;
     const MIRAGE_CHANCE_PER_SECOND = 0.3;
 
+    // Overdrive: past 100 points every level gets tougher so you can't coast.
+    // Each hit adds less time, the clock has a ceiling so time can't be banked,
+    // the ball shrinks and speeds up, blue diamonds give less and come less
+    // often, and red/black diamonds turn up more.
+    const OVERDRIVE = [
+      { from: 100, label: 'Overdrive!', timePerHit: 0.5, maxClock: 45, ballScale: 0.85, speed: 0.85,
+        blueBonus: 3, gemGap: 1.4, weights: { blue: 20, red: 30, gold: 15, green: 20, black: 25 } },
+      { from: 150, label: 'Max overdrive!', timePerHit: 1 / 3, maxClock: 30, ballScale: 0.7, speed: 0.72,
+        blueBonus: 2, gemGap: 1.8, weights: { blue: 15, red: 30, gold: 10, green: 15, black: 30 } }
+    ];
+    const MAX_TOUCHES = 2; // taps made with 3+ fingers on the screen don't count
+
     // Bonus diamonds: one at a time, shown on the ball for a few seconds.
     // You still have to hit the moving ball to collect one.
     const GEM_TYPES = {
@@ -715,6 +728,7 @@
 
     let score = 0;
     let timeLeft = START_SECONDS;
+    let timeBank = 0; // fractions of a second earned by hits in overdrive
     let playing = false;
     let countdownTimer = null;
     let emojiTimeout = null;
@@ -742,10 +756,10 @@
         autoMoveMs: 750
       },
       hard: {
-        evadeDistance: 100,
+        evadeDistance: 120,
         speed: '0.08s',
         jumpRange: 'full',
-        autoMoveMs: 550
+        autoMoveMs: 470
       }
     };
 
@@ -796,7 +810,7 @@
     function startAutoMove() {
       if (autoMoveTimer) clearTimeout(autoMoveTimer);
       if (!isTouchDevice || !playing) return;
-      const base = Math.max(220, difficultyConfig[currentDifficulty].autoMoveMs * speedFactor());
+      const base = Math.max(overdrive() ? 150 : 220, difficultyConfig[currentDifficulty].autoMoveMs * speedFactor());
       // Randomize the rhythm a bit so it's harder to predict
       autoMoveTimer = setTimeout(() => {
         moveCircle();
@@ -805,10 +819,23 @@
       }, base * (0.6 + Math.random() * 0.8));
     }
 
+    function overdrive() {
+      let level = null;
+      for (const o of OVERDRIVE) if (score >= o.from) level = o;
+      return level;
+    }
+
+    function applyBallScale() {
+      const o = overdrive();
+      document.documentElement.style.setProperty('--ball-scale', o ? o.ballScale : 1);
+    }
+
     function speedFactor() {
       const steps = Math.floor(score / HITS_PER_SPEEDUP);
       const base = Math.max(MIN_SPEED_FACTOR, Math.pow(SPEEDUP_FACTOR, steps));
-      return isActive('red') ? base * RED_SPEED_FACTOR : base;
+      const o = overdrive();
+      const boosted = o ? base * o.speed : base;
+      return isActive('red') ? boosted * RED_SPEED_FACTOR : boosted;
     }
 
     function moveTransition() {
@@ -915,11 +942,13 @@
     const isActive = (type) => Date.now() < effectEnds[type];
 
     function pickGemType() {
+      const o = overdrive();
+      const weightOf = (t) => (o ? o.weights[t] : GEM_TYPES[t].weight);
       const types = Object.keys(GEM_TYPES);
-      const total = types.reduce((sum, t) => sum + GEM_TYPES[t].weight, 0);
+      const total = types.reduce((sum, t) => sum + weightOf(t), 0);
       let roll = Math.random() * total;
       for (const t of types) {
-        roll -= GEM_TYPES[t].weight;
+        roll -= weightOf(t);
         if (roll < 0) return t;
       }
       return types[0];
@@ -943,17 +972,21 @@
       clearTimeout(gemTimer);
       gemType = null;
       document.querySelectorAll('.gem').forEach(g => g.remove());
-      nextGemAt = Date.now() + randomBetween(GEM_GAP_MS);
+      const o = overdrive();
+      nextGemAt = Date.now() + randomBetween(GEM_GAP_MS) * (o ? o.gemGap : 1);
     }
 
     function collectGem() {
       const type = gemType;
-      removeGem();
+      if (!type) return; // already collected: each diamond only counts once
+      removeGem(); // it disappears the moment it's hit
       sfx.gem(type);
 
       if (type === 'blue') {
-        addTime(BLUE_BONUS_SECONDS);
-        showToast(`+${BLUE_BONUS_SECONDS} seconds`);
+        const o = overdrive();
+        const bonus = o ? o.blueBonus : BLUE_BONUS_SECONDS;
+        addTime(bonus);
+        showToast(`+${bonus} seconds`);
         return;
       }
 
@@ -1064,11 +1097,26 @@
     }
 
     function addTime(seconds) {
-      timeLeft += seconds;
+      const o = overdrive();
+      const ceiling = o ? Math.max(o.maxClock, timeLeft) : Infinity; // never takes time away
+      const next = Math.min(timeLeft + seconds, ceiling);
+      if (next === timeLeft) return;
+      timeLeft = next;
       renderTimer();
       timerBoard.classList.remove('bump');
       void timerBoard.offsetWidth; // restart the animation
       timerBoard.classList.add('bump');
+    }
+
+    // Hits add 1 second normally, less in overdrive (banked until a whole second)
+    function addHitTime() {
+      const o = overdrive();
+      timeBank += o ? o.timePerHit : SECONDS_PER_HIT;
+      const whole = Math.floor(timeBank + 1e-9);
+      if (whole > 0) {
+        timeBank -= whole;
+        addTime(whole);
+      }
     }
 
     function tick() {
@@ -1094,6 +1142,8 @@
       score = 0;
       applySpeed();
       timeLeft = START_SECONDS;
+      timeBank = 0;
+      applyBallScale();
       scoreDisplay.textContent = score;
       renderTimer();
       setEmoji('');
@@ -1277,8 +1327,19 @@
     function handleHit(e) {
       e.preventDefault();
       e.stopPropagation();
+      if (tooManyFingers(e)) return;
       registerHit();
     }
+
+    // Two fingers max: taps made while 3+ fingers are on the screen don't count
+    const activePointers = new Set();
+    function tooManyFingers(e) {
+      if (e.touches && e.touches.length > MAX_TOUCHES) return true;
+      return activePointers.size > MAX_TOUCHES;
+    }
+    ['pointerup', 'pointercancel'].forEach(type => {
+      window.addEventListener(type, (e) => activePointers.delete(e.pointerId), true);
+    });
 
     function registerHit() {
       if (!playing) return;
@@ -1292,7 +1353,8 @@
       const reached = (n) => before < n && score >= n;
 
       scoreDisplay.textContent = score;
-      addTime(SECONDS_PER_HIT);
+      addHitTime();
+      applyBallScale();
       if (penalty) sfx.minus();
       else sfx.hit(score);
 
@@ -1318,7 +1380,13 @@
 
       if (gemType) collectGem();
 
-      if (passed(HITS_PER_SPEEDUP)) {
+      // Entering overdrive tiers
+      const tier = OVERDRIVE.slice().reverse().find(o => reached(o.from));
+      if (tier) {
+        showToast(tier.label);
+        applySpeed();
+        music.updateTempo();
+      } else if (passed(HITS_PER_SPEEDUP)) {
         applySpeed();
         showToast('Faster!');
         music.updateTempo();
@@ -1659,12 +1727,13 @@
 
     // Capture phase so it sees the tap before the hit handlers stop it
     window.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') activePointers.add(e.pointerId);
       const target = e.target instanceof Element ? e.target : null;
       if (!playing || (target && target.closest('button'))) return;
-      let isHit = !!(target && target.closest('#circle'));
+      let isHit = !!(target && target.closest('#circle')) && !tooManyFingers(e);
 
       // Green diamond: a tap close to the real ball counts as a hit
-      if (!isHit && isActive('green') && !(target && target.closest('.mirage'))) {
+      if (!isHit && isActive('green') && !tooManyFingers(e) && !(target && target.closest('.mirage'))) {
         const r = circle.getBoundingClientRect();
         const dist = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2));
         if (dist <= r.width / 2 + GREEN_RANGE_PX) {
