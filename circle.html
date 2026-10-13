@@ -49,20 +49,48 @@
       gap: 8px;
     }
 
+    /* Score and timer: neon arcade panels to match the popups */
     .stat {
-      font-size: clamp(18px, 4vw, 24px);
-      font-weight: bold;
-      color: #222;
-      background: rgba(255, 255, 255, 0.65);
-      padding: 6px 14px;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 5px 14px 6px;
+      font-family: 'Bungee', Impact, 'Arial Black', sans-serif;
+      font-size: clamp(20px, 5vw, 26px);
+      line-height: 1.1;
+      color: #fff59d;
+      text-shadow: 2px 2px 0 #ff1f6b, 0 0 10px rgba(255, 213, 79, 0.7);
+      background: linear-gradient(180deg, #120533, #2a0a52);
+      border: 2px solid #ff3cac;
       border-radius: 12px;
-      backdrop-filter: blur(4px);
+      box-shadow: 0 0 0 2px #120533, 0 0 14px rgba(255, 60, 172, 0.65);
       font-variant-numeric: tabular-nums;
     }
 
+    .stat-label {
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: #00e5ff;
+      text-shadow: 0 0 6px rgba(0, 229, 255, 0.8);
+    }
+
+    #timer-board {
+      border-color: #00e5ff;
+      box-shadow: 0 0 0 2px #120533, 0 0 14px rgba(0, 229, 255, 0.6);
+    }
+
+    /* Last 10 seconds: red alarm glow */
     #timer-board.low {
       color: #fff;
-      background: rgba(198, 40, 40, 0.9);
+      text-shadow: 2px 2px 0 #6e001e, 0 0 10px rgba(255, 82, 82, 0.9);
+      background: linear-gradient(180deg, #4a0012, #9b0030);
+      border-color: #ff1744;
+      box-shadow: 0 0 0 2px #120533, 0 0 18px rgba(255, 23, 68, 0.9);
+    }
+
+    #timer-board.low .stat-label {
+      color: #ffcdd2;
+      text-shadow: none;
     }
 
     #timer-board.bump {
@@ -82,13 +110,12 @@
 
     .icon-btn {
       padding: 6px 12px;
-      font-size: clamp(12px, 3.5vw, 15px);
-      font-weight: bold;
-      border: 2px solid #222;
-      border-radius: 8px;
-      background: white;
+      font-size: clamp(16px, 4vw, 20px);
+      background: linear-gradient(180deg, #120533, #2a0a52);
+      border: 2px solid #00e5ff;
+      border-radius: 12px;
+      box-shadow: 0 0 0 2px #120533, 0 0 12px rgba(0, 229, 255, 0.55);
       cursor: pointer;
-      transition: background 0.2s, color 0.2s;
     }
 
     /* The target circle (and its mirage copy on Hard) */
@@ -155,18 +182,21 @@
     }
 
     .effect {
-      font-size: 14px;
-      font-weight: bold;
+      font-family: 'Bungee', Impact, 'Arial Black', sans-serif;
+      font-size: 12px;
+      letter-spacing: 1px;
       color: white;
       padding: 4px 10px;
+      border: 2px solid rgba(255, 255, 255, 0.6);
       border-radius: 10px;
       font-variant-numeric: tabular-nums;
+      text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.4);
     }
 
-    .effect.red { background: #d50000; }
-    .effect.gold { background: #ff8f00; }
-    .effect.green { background: #00a844; }
-    .effect.black { background: #111; box-shadow: 0 0 0 2px #b388ff; }
+    .effect.red { background: linear-gradient(180deg, #ff5252, #b50024); box-shadow: 0 0 10px rgba(255, 23, 68, 0.7); }
+    .effect.gold { background: linear-gradient(180deg, #ffca28, #e65100); box-shadow: 0 0 10px rgba(255, 179, 0, 0.7); }
+    .effect.green { background: linear-gradient(180deg, #4ff58d, #00873e); box-shadow: 0 0 10px rgba(0, 230, 118, 0.7); }
+    .effect.black { background: linear-gradient(180deg, #3a2a55, #0b0418); border-color: #b388ff; box-shadow: 0 0 10px rgba(179, 136, 255, 0.8); }
 
     .mirage.fizzle {
       animation: fizzle 0.35s ease-out;
@@ -183,12 +213,16 @@
       left: 50%;
       top: 40%;
       transform: translate(-50%, -50%) scale(0.8);
-      font-size: clamp(28px, 8vw, 44px);
-      font-weight: bold;
-      color: #222;
-      background: rgba(255, 255, 255, 0.85);
-      padding: 8px 20px;
-      border-radius: 14px;
+      font-family: 'Bungee', Impact, 'Arial Black', sans-serif;
+      font-size: clamp(26px, 8vw, 42px);
+      white-space: nowrap;
+      color: #fff59d;
+      text-shadow: 3px 3px 0 #ff1f6b, 0 0 14px rgba(255, 213, 79, 0.8);
+      background: linear-gradient(180deg, rgba(18, 5, 51, 0.92), rgba(42, 10, 82, 0.92));
+      border: 3px solid #ff3cac;
+      box-shadow: 0 0 0 3px #120533, 0 0 22px rgba(255, 60, 172, 0.75);
+      padding: 8px 22px;
+      border-radius: 16px;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.25s ease, transform 0.25s ease;
@@ -594,8 +628,8 @@
 
   <div id="top-bar">
     <div id="stats">
-      <div class="stat" id="score-board">Score: <span id="score">0</span></div>
-      <div class="stat" id="timer-board">⏱ <span id="timer">60</span></div>
+      <div class="stat" id="score-board"><span class="stat-label">Score</span><span id="score">0</span></div>
+      <div class="stat" id="timer-board"><span class="stat-label">Time</span><span id="timer">60</span></div>
     </div>
     <div id="top-controls">
       <button class="icon-btn" id="sound-btn" aria-label="Mute sound" onclick="toggleSound()">🔊</button>
