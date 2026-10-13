@@ -132,6 +132,7 @@
     .gem.red { background: linear-gradient(135deg, #ff8a80, #d50000); box-shadow: 0 0 14px #ff5252; }
     .gem.gold { background: linear-gradient(135deg, #fff59d, #ffa000); box-shadow: 0 0 14px #ffd740; }
     .gem.green { background: linear-gradient(135deg, #b9f6ca, #00c853); box-shadow: 0 0 14px #69f0ae; }
+    .gem.black { background: linear-gradient(135deg, #616161, #000); box-shadow: 0 0 14px #b388ff; }
 
     @keyframes gem-pulse {
       from { transform: rotate(45deg) scale(0.85); }
@@ -167,6 +168,7 @@
     .effect.red { background: #d50000; }
     .effect.gold { background: #ff8f00; }
     .effect.green { background: #00a844; }
+    .effect.black { background: #111; box-shadow: 0 0 0 2px #b388ff; }
 
     .mirage.fizzle {
       animation: fizzle 0.35s ease-out;
@@ -398,7 +400,8 @@
       blue: { weight: 30 },  // +5 seconds
       red: { weight: 25 },   // ball moves faster for 5 seconds
       gold: { weight: 20 },  // double points for 10 seconds
-      green: { weight: 25 }  // near misses count as hits for 5 seconds
+      green: { weight: 25 }, // near misses count as hits for 5 seconds
+      black: { weight: 15 }  // every hit takes points away for 5 seconds
     };
     const GEM_VISIBLE_MS = 3000;
     const GEM_FIRST_DELAY_MS = [8000, 14000];
@@ -409,6 +412,7 @@
     const GOLD_SECONDS = 10;
     const GREEN_SECONDS = 5;
     const GREEN_RANGE_PX = 60;         // how close a tap must be to count
+    const BLACK_SECONDS = 5;
 
     let score = 0;
     let timeLeft = START_SECONDS;
@@ -422,7 +426,7 @@
     let gemType = null;
     let gemTimer = null;
     let nextGemAt = 0;
-    const effectEnds = { red: 0, gold: 0, green: 0 };
+    const effectEnds = { red: 0, gold: 0, green: 0, black: 0 };
     let effectTimers = [];
 
     const difficultyConfig = {
@@ -656,9 +660,9 @@
         return;
       }
 
-      const seconds = { red: RED_SECONDS, gold: GOLD_SECONDS, green: GREEN_SECONDS }[type];
+      const seconds = { red: RED_SECONDS, gold: GOLD_SECONDS, green: GREEN_SECONDS, black: BLACK_SECONDS }[type];
       effectEnds[type] = Date.now() + seconds * 1000;
-      showToast({ red: 'Too fast!', gold: 'Double points!', green: 'Big hit zone!' }[type]);
+      showToast({ red: 'Too fast!', gold: 'Double points!', green: 'Big hit zone!', black: 'Hits cost points!' }[type]);
 
       if (type === 'red') applySpeed();
       if (type === 'green') circle.classList.add('big-zone');
@@ -673,7 +677,7 @@
     }
 
     function renderEffects() {
-      const labels = { red: '⚡ Fast', gold: '2× Points', green: '◎ Big zone' };
+      const labels = { red: '⚡ Fast', gold: '2× Points', green: '◎ Big zone', black: '☠ Minus points' };
       document.getElementById('effects').innerHTML = Object.keys(labels)
         .filter(isActive)
         .map(t => `<span class="effect ${t}">${labels[t]} ${Math.ceil((effectEnds[t] - Date.now()) / 1000)}</span>`)
@@ -956,14 +960,17 @@
       if (!playing) return;
 
       const before = score;
-      score += isActive('gold') ? 2 : 1;
+      const points = isActive('gold') ? 2 : 1;
+      const penalty = isActive('black');
+      score = penalty ? Math.max(0, score - points) : score + points;
       // Double points can jump past a multiple, so check for crossing it
       const passed = (n) => Math.floor(before / n) < Math.floor(score / n);
       const reached = (n) => before < n && score >= n;
 
       scoreDisplay.textContent = score;
       addTime(SECONDS_PER_HIT);
-      sfx.hit(score);
+      if (penalty) sfx.minus();
+      else sfx.hit(score);
 
       // Randomize colors every 5 points
       if (passed(5)) {
@@ -1253,6 +1260,14 @@
         synthNote('sawtooth', 44, t, 0.18, 0.15, 700);
       },
 
+      // Sad "wah-wah" when a hit costs points
+      minus() {
+        if (!ensureAudio()) return;
+        const t = audioCtx.currentTime;
+        synthNote('square', 55, t, 0.1, 0.12, 2000);
+        synthNote('square', 50, t + 0.08, 0.16, 0.12, 2000);
+      },
+
       // Soft sparkle when a diamond appears
       gemAppear() {
         if (!audioCtx) return;
@@ -1269,7 +1284,8 @@
           blue: [72, 76, 79, 84],
           gold: [76, 79, 84, 88],
           green: [67, 71, 74, 79],
-          red: [84, 79, 75, 72]
+          red: [84, 79, 75, 72],
+          black: [60, 56, 53, 48]
         }[type];
         notes.forEach((note, i) => synthNote('square', note, t + i * 0.06, 0.1, 0.11, 5000));
       },
