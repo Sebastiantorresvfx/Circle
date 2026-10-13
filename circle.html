@@ -30,6 +30,17 @@
       transition: background-color 0.5s ease;
     }
 
+    /* Soft vignette: darkens the edges so the background colour doesn't look flat.
+       Sits above the background but under the ball, marks and HUD. */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 45%, transparent 35%, rgba(0, 0, 0, 0.08) 60%, rgba(0, 0, 0, 0.18) 80%, rgba(0, 0, 0, 0.3) 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
     /* Top bar for score, timer and difficulty settings */
     #top-bar {
       position: absolute;
