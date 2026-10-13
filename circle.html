@@ -1271,7 +1271,13 @@
       }
 
       // Milestones for emojis (disappears after 5 seconds)
-      if (reached(50)) {
+      if (reached(200)) {
+        showEmoji('🔥'); // On fire
+      } else if (reached(150)) {
+        showEmoji('💀'); // Skull
+      } else if (reached(100)) {
+        showEmoji('🤯'); // Mind blown
+      } else if (reached(50)) {
         showEmoji('🤬'); // Swearing
       } else if (reached(20)) {
         showEmoji('😠'); // Angry
