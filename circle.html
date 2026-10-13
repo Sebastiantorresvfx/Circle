@@ -292,21 +292,20 @@
       cursor: pointer;
     }
 
-    #initials-form {
+    #name-form {
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 6px;
     }
 
-    #initials {
-      width: 130px;
-      padding: 8px;
-      font-size: 30px;
+    #player-name {
+      width: 100%;
+      max-width: 280px;
+      padding: 10px;
+      font-size: 20px; /* 16px+ stops iPhones zooming in on the box */
       font-weight: bold;
       text-align: center;
-      text-transform: uppercase;
-      letter-spacing: 6px;
       border: 3px solid #222;
       border-radius: 10px;
       user-select: text;
@@ -335,7 +334,15 @@
     }
 
     .board td:first-child { width: 30px; color: #888; text-align: right; }
-    .board td:nth-child(2) { text-align: left; font-weight: bold; letter-spacing: 2px; }
+    .board td:nth-child(2) {
+      text-align: left;
+      font-weight: bold;
+      max-width: 0; /* lets long names shrink and end in "..." */
+      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .board td:last-child { text-align: right; font-weight: bold; }
 
     .board tr.me td {
@@ -836,32 +843,35 @@
 
       const list = await scoreStore.load(level);
       if (qualifies(list, score)) {
-        askInitials(level);
+        askName(level);
       } else {
         showLeaderboard(level, list, null, 'Not quite top ten this time.');
       }
     }
 
-    function askInitials(level) {
+    const MAX_NAME_LENGTH = 24;
+
+    function askName(level) {
       showPanel(`
         <h1>Top ten!</h1>
         <div class="big-score">${score}</div>
-        <form id="initials-form" autocomplete="off">
-          <p>Enter your initials</p>
-          <input id="initials" aria-label="Your initials" maxlength="3" autocapitalize="characters" spellcheck="false" required>
+        <form id="name-form" autocomplete="off">
+          <p>Enter your name</p>
+          <input id="player-name" aria-label="Your name" maxlength="${MAX_NAME_LENGTH}" autocapitalize="words" spellcheck="false" required>
           <button class="panel-btn" type="submit">Save score</button>
         </form>
       `, false);
 
-      const input = document.getElementById('initials');
+      const input = document.getElementById('player-name');
       input.addEventListener('input', () => {
-        input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        // Letters from any language, digits, spaces, hyphens, apostrophes and dots
+        input.value = input.value.replace(/[^\p{L}\p{M}0-9 '\-.]/gu, '');
       });
       setTimeout(() => input.focus(), 50);
 
-      document.getElementById('initials-form').addEventListener('submit', async (e) => {
+      document.getElementById('name-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const name = input.value.trim();
+        const name = input.value.replace(/\s+/g, ' ').trim().slice(0, MAX_NAME_LENGTH);
         if (!name) return;
         const entry = { name, score, time: Date.now() };
         const top = await scoreStore.save(level, entry);
