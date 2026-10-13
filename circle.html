@@ -18,8 +18,8 @@
     html, body {
       margin: 0;
       padding: 0;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
       overflow: hidden;
       overscroll-behavior: none; /* No pull-to-refresh or rubber-band drag */
       -webkit-text-size-adjust: 100%;
@@ -28,6 +28,13 @@
       background-color: #ffd700;
       font-family: Arial, sans-serif;
       transition: background-color 0.5s ease;
+    }
+
+    /* Pin the page to the screen: iPhones otherwise let it drift up (e.g. after
+       the keyboard opens), which pushes the score bar under the status bar */
+    body {
+      position: fixed;
+      inset: 0;
     }
 
     /* Soft vignette: darkens the edges so the background colour doesn't look flat.
@@ -44,9 +51,9 @@
     /* Top bar for score, timer and difficulty settings */
     #top-bar {
       position: absolute;
-      top: 16px;
-      left: 16px;
-      right: 16px;
+      top: max(16px, calc(env(safe-area-inset-top) + 8px));
+      left: max(16px, calc(env(safe-area-inset-left) + 8px));
+      right: max(16px, calc(env(safe-area-inset-right) + 8px));
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -284,7 +291,11 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      padding: 16px;
+      padding:
+        max(16px, env(safe-area-inset-top))
+        max(16px, env(safe-area-inset-right))
+        max(16px, env(safe-area-inset-bottom))
+        max(16px, env(safe-area-inset-left));
       background: radial-gradient(circle at 50% 40%, rgba(40, 10, 80, 0.55), rgba(5, 0, 20, 0.8));
       -webkit-backdrop-filter: blur(3px);
       backdrop-filter: blur(3px);
@@ -1149,6 +1160,8 @@
         input.value = input.value.replace(/[^\p{L}\p{M}0-9 '\-.]/gu, '');
       });
       setTimeout(() => input.focus(), 50);
+      // iPhones scroll the page up to make room for the keyboard; put it back
+      input.addEventListener('blur', () => window.scrollTo(0, 0));
 
       document.getElementById('name-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -1697,7 +1710,10 @@
 
     // Initialize
     resetGame();
-    window.addEventListener('resize', () => { if (!playing) centerCircle(); });
+    window.addEventListener('resize', () => {
+      window.scrollTo(0, 0); // undo any drift from the keyboard or browser bars
+      if (!playing) centerCircle();
+    });
   </script>
 </body>
 </html>
