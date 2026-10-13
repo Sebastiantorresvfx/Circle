@@ -72,12 +72,12 @@
       100% { transform: scale(1); }
     }
 
-    #difficulty-container {
+    #top-controls {
       display: flex;
       gap: 6px;
     }
 
-    .difficulty-btn {
+    .icon-btn {
       padding: 6px 12px;
       font-size: clamp(12px, 3.5vw, 15px);
       font-weight: bold;
@@ -86,11 +86,6 @@
       background: white;
       cursor: pointer;
       transition: background 0.2s, color 0.2s;
-    }
-
-    .difficulty-btn.active {
-      background: #222;
-      color: white;
     }
 
     /* The target circle (and its mirage copy on Hard) */
@@ -263,6 +258,75 @@
       touch-action: pan-y;
     }
 
+    /* Start screen */
+    .hero-ball {
+      display: block;
+      margin: 0 auto 4px;
+      overflow: visible;
+    }
+
+    .hero-bounce {
+      animation: hero-bounce 0.7s ease-in-out infinite alternate;
+    }
+
+    .hero-shadow {
+      transform-origin: 60px 122px;
+      animation: hero-shadow 0.7s ease-in-out infinite alternate;
+    }
+
+    @keyframes hero-bounce {
+      from { transform: translateY(0); }
+      to { transform: translateY(-12px); }
+    }
+
+    @keyframes hero-shadow {
+      from { transform: scaleX(1); opacity: 1; }
+      to { transform: scaleX(0.8); opacity: 0.6; }
+    }
+
+    .game-title {
+      font-size: 32px !important;
+      letter-spacing: 1px;
+    }
+
+    .level-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .level-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      width: 100%;
+      padding: 12px;
+      font-size: 22px;
+      font-weight: bold;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
+    }
+
+    .level-btn:active {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+    }
+
+    .level-btn small {
+      font-size: 13px;
+      font-weight: normal;
+      opacity: 0.9;
+    }
+
+    .level-btn.easy { background: #2e7d32; }
+    .level-btn.medium { background: #ef6c00; }
+    .level-btn.hard { background: #c62828; }
+
     #panel h1 {
       margin: 0 0 6px;
       font-size: 26px;
@@ -362,11 +426,8 @@
       <div class="stat" id="score-board">Score: <span id="score">0</span></div>
       <div class="stat" id="timer-board">⏱ <span id="timer">60</span></div>
     </div>
-    <div id="difficulty-container">
-      <button class="difficulty-btn" onclick="setDifficulty('easy')">Easy</button>
-      <button class="difficulty-btn active" onclick="setDifficulty('medium')">Medium</button>
-      <button class="difficulty-btn" onclick="setDifficulty('hard')">Hard</button>
-      <button class="difficulty-btn" id="sound-btn" aria-label="Mute sound" onclick="toggleSound()">🔊</button>
+    <div id="top-controls">
+      <button class="icon-btn" id="sound-btn" aria-label="Mute sound" onclick="toggleSound()">🔊</button>
     </div>
     <div id="effects"></div>
   </div>
@@ -385,7 +446,6 @@
     const timerBoard = document.getElementById('timer-board');
     const overlay = document.getElementById('overlay');
     const panel = document.getElementById('panel');
-    const buttons = document.querySelectorAll('.difficulty-btn');
     const topBar = document.getElementById('top-bar');
 
     const START_SECONDS = 60;
@@ -541,13 +601,11 @@
       return circle.getBoundingClientRect().width;
     }
 
-    function setDifficulty(level) {
+    // Picking a difficulty on the start screen starts the round straight away
+    function chooseDifficulty(level) {
       currentDifficulty = level;
-      buttons.forEach(btn => {
-        btn.classList.toggle('active', btn.textContent.toLowerCase() === level);
-      });
-      // Switching mid-game would let you dodge a hard run, so it resets the round
-      resetGame();
+      applySpeed();
+      startGame();
     }
 
     function getRandomColor() {
@@ -896,12 +954,28 @@
     }
 
     function showStartPanel() {
-      const ranked = RANKED_LEVELS.includes(currentDifficulty);
       showPanel(`
-        <h1>Catch the Ball</h1>
+        <svg class="hero-ball" viewBox="0 0 120 130" width="120" height="130" aria-hidden="true">
+          <defs>
+            <radialGradient id="hero-ball-fill" cx="35%" cy="30%" r="75%">
+              <stop offset="0%" stop-color="#81c784"/>
+              <stop offset="55%" stop-color="#2e7d32"/>
+              <stop offset="100%" stop-color="#1b5e20"/>
+            </radialGradient>
+          </defs>
+          <ellipse class="hero-shadow" cx="60" cy="122" rx="34" ry="6" fill="rgba(0, 0, 0, 0.22)"/>
+          <g class="hero-bounce">
+            <circle cx="60" cy="58" r="50" fill="url(#hero-ball-fill)"/>
+            <ellipse cx="42" cy="36" rx="14" ry="8" fill="rgba(255, 255, 255, 0.45)" transform="rotate(-30 42 36)"/>
+          </g>
+        </svg>
+        <h1 class="game-title">Catch the Ball</h1>
         <p>You have <b>${START_SECONDS} seconds</b>. Every hit adds <b>+${SECONDS_PER_HIT}s</b>.</p>
-        <p class="muted">${ranked ? `Playing <b>${currentDifficulty}</b> - top ten scores go on the leaderboard.` : 'Easy is practice mode - no leaderboard.'}</p>
-        <button class="panel-btn" id="start-btn">Start</button>
+        <div class="level-buttons">
+          <button class="level-btn easy" data-level="easy">Easy<small>Practice</small></button>
+          <button class="level-btn medium" data-level="medium">Medium<small>Top ten leaderboard</small></button>
+          <button class="level-btn hard" data-level="hard">Hard<small>Top ten leaderboard + mirage</small></button>
+        </div>
       `);
     }
 
@@ -909,8 +983,9 @@
       panel.innerHTML = html;
       overlay.classList.remove('hidden');
       if (!wireButtons) return;
-      const start = document.getElementById('start-btn');
-      if (start) start.addEventListener('click', startGame);
+      panel.querySelectorAll('.level-btn').forEach(btn => {
+        btn.addEventListener('click', () => chooseDifficulty(btn.dataset.level));
+      });
       const again = document.getElementById('again-btn');
       if (again) again.addEventListener('click', () => { resetGame(); });
     }
@@ -1389,7 +1464,7 @@
     });
 
     // Initialize
-    setDifficulty('medium');
+    resetGame();
     window.addEventListener('resize', () => { if (!playing) centerCircle(); });
   </script>
 </body>
