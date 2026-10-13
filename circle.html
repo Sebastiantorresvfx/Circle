@@ -816,7 +816,7 @@
 
     // ---- Sound ----
     // Everything is synthesized live with the Web Audio API (no audio files):
-    // a hard techno loop that speeds up with the game, plus hit sounds.
+    // an 80s video game style metal loop that speeds up with the game, plus hit sounds.
     const SOUND_PREF_KEY = 'catch-the-ball-muted';
     let audioCtx = null;
     let masterGain = null;
@@ -824,10 +824,14 @@
     let muted = false;
     try { muted = localStorage.getItem(SOUND_PREF_KEY) === '1'; } catch (e) {}
 
-    const MUSIC_BASE_BPM = { easy: 140, medium: 148, hard: 155 };
+    const MUSIC_BASE_BPM = { easy: 132, medium: 140, hard: 148 };
     const BPM_PER_SPEEDUP = 8;
-    const MAX_BPM = 200;
-    let drive = null; // distortion bus for the kick, rumble and acid bass
+    const MAX_BPM = 180;
+    // 80s console style voices: pulse waves for riff and lead, triangle for
+    // bass and kick, noise for snare and hats
+    let pulse25 = null;
+    let pulse12 = null;
+    let musicBus = null;
 
     function ensureAudio() {
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -844,25 +848,30 @@
         const data = noiseBuffer.getChannelData(0);
         for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
 
-        // Soft-clipping distortion for that crunchy hard techno sound
-        drive = audioCtx.createWaveShaper();
-        const curve = new Float32Array(1024);
-        for (let i = 0; i < curve.length; i++) {
-          const x = (i / (curve.length - 1)) * 2 - 1;
-          curve[i] = Math.tanh(x * 4);
-        }
-        drive.curve = curve;
-        drive.oversample = '2x';
-        const driveOut = audioCtx.createGain();
-        driveOut.gain.value = 0.55;
-        drive.connect(driveOut);
-        driveOut.connect(masterGain);
+        pulse25 = makePulseWave(0.25);
+        pulse12 = makePulseWave(0.125);
+        musicBus = audioCtx.createGain();
+        musicBus.gain.value = 1.0;
+        musicBus.connect(masterGain);
       }
       if (audioCtx.state === 'suspended') audioCtx.resume();
       return true;
     }
 
     const midiToFreq = (n) => 440 * Math.pow(2, (n - 69) / 12);
+
+    // Pulse wave with a given duty cycle, like the NES sound chip. Only the
+    // first 24 harmonics are kept, which takes the harsh edge off.
+    function makePulseWave(duty) {
+      const harmonics = 24;
+      const real = new Float32Array(harmonics + 1);
+      const imag = new Float32Array(harmonics + 1);
+      for (let n = 1; n <= harmonics; n++) {
+        real[n] = Math.sin(2 * Math.PI * n * duty) / (n * Math.PI);
+        imag[n] = (1 - Math.cos(2 * Math.PI * n * duty)) / (n * Math.PI);
+      }
+      return audioCtx.createPeriodicWave(real, imag);
+    }
 
     // One synth note: oscillator -> optional low-pass filter -> volume envelope
     function synthNote(type, midi, time, duration, volume, filterHz) {
@@ -887,7 +896,7 @@
       osc.stop(time + duration + 0.02);
     }
 
-    function noiseHit(time, duration, volume, highpassHz) {
+    function noiseHit(time, duration, volume, highpassHz, destination = masterGain) {
       const src = audioCtx.createBufferSource();
       src.buffer = noiseBuffer;
       const filter = audioCtx.createBiquadFilter();
@@ -898,119 +907,72 @@
       gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
       src.connect(filter);
       filter.connect(gain);
-      gain.connect(masterGain);
+      gain.connect(destination);
       src.start(time);
       src.stop(time + duration + 0.02);
     }
 
-    // Distorted hard techno kick: fast pitch drop pushed through the drive
+    // Chip voice: one oscillator with a simple volume envelope
+    function chip(wave, midi, time, duration, volume) {
+      const osc = audioCtx.createOscillator();
+      if (typeof wave === 'string') osc.type = wave;
+      else osc.setPeriodicWave(wave);
+      osc.frequency.value = midiToFreq(midi);
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(volume, time + 0.004);
+      gain.gain.setValueAtTime(volume, time + duration * 0.75);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+      osc.connect(gain);
+      gain.connect(musicBus);
+      osc.start(time);
+      osc.stop(time + duration + 0.02);
+      return osc;
+    }
+
+    // Triangle "thump" kick, the way old consoles faked a bass drum
     function kick(time) {
       const osc = audioCtx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(140, time);
+      osc.frequency.exponentialRampToValueAtTime(45, time + 0.07);
       const gain = audioCtx.createGain();
-      osc.frequency.setValueAtTime(220, time);
-      osc.frequency.exponentialRampToValueAtTime(48, time + 0.08);
-      gain.gain.setValueAtTime(1.4, time);
-      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.3);
+      gain.gain.setValueAtTime(0.75, time);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.13);
       osc.connect(gain);
-      gain.connect(drive);
+      gain.connect(musicBus);
       osc.start(time);
-      osc.stop(time + 0.32);
-      noiseHit(time, 0.012, 0.5, 3000); // click on top
+      osc.stop(time + 0.15);
     }
 
-    // Low distorted "rumble" between kicks
-    function rumble(midi, time, duration) {
-      const osc = audioCtx.createOscillator();
-      const filter = audioCtx.createBiquadFilter();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = midiToFreq(midi);
-      filter.type = 'lowpass';
-      filter.frequency.value = 160;
-      gain.gain.setValueAtTime(0.0001, time);
-      gain.gain.exponentialRampToValueAtTime(0.7, time + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(drive);
-      osc.start(time);
-      osc.stop(time + duration + 0.02);
+    function snare(time) {
+      noiseHit(time, 0.12, 0.2, 1500, musicBus);
+      chip('triangle', 52, time, 0.05, 0.3);
     }
 
-    // Squelchy 303-style acid bass: resonant filter that snaps shut
-    function acid(midi, time, duration, cutoff, accent) {
-      const osc = audioCtx.createOscillator();
-      const filter = audioCtx.createBiquadFilter();
-      const gain = audioCtx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.value = midiToFreq(midi);
-      filter.type = 'lowpass';
-      filter.Q.value = accent ? 18 : 12;
-      filter.frequency.setValueAtTime(cutoff * (accent ? 2.2 : 1.3), time);
-      filter.frequency.exponentialRampToValueAtTime(180, time + duration);
-      gain.gain.setValueAtTime(0.0001, time);
-      gain.gain.exponentialRampToValueAtTime(accent ? 0.32 : 0.2, time + 0.004);
-      gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(drive);
-      osc.start(time);
-      osc.stop(time + duration + 0.02);
+    function tom(midi, time) {
+      const osc = chip('triangle', midi, time, 0.16, 0.55);
+      osc.frequency.exponentialRampToValueAtTime(midiToFreq(midi - 7), time + 0.16);
     }
 
-    // Goofy squeaky lead that "boings" up into each note
-    function squeak(midi, time, duration) {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(midiToFreq(midi - 12), time);
-      osc.frequency.exponentialRampToValueAtTime(midiToFreq(midi), time + 0.035);
-      gain.gain.setValueAtTime(0.0001, time);
-      gain.gain.exponentialRampToValueAtTime(0.07, time + 0.005);
-      gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-      osc.connect(gain);
-      gain.connect(masterGain);
-      osc.start(time);
-      osc.stop(time + duration + 0.02);
-    }
-
-    // Big detuned rave stab
-    function stab(notes, time) {
-      notes.forEach(note => {
-        [-14, 0, 14].forEach(cents => {
-          const osc = audioCtx.createOscillator();
-          osc.type = 'sawtooth';
-          osc.frequency.value = midiToFreq(note);
-          osc.detune.value = cents;
-          const filter = audioCtx.createBiquadFilter();
-          filter.type = 'lowpass';
-          filter.frequency.setValueAtTime(5000, time);
-          filter.frequency.exponentialRampToValueAtTime(600, time + 0.3);
-          const gain = audioCtx.createGain();
-          gain.gain.setValueAtTime(0.0001, time);
-          gain.gain.exponentialRampToValueAtTime(0.045, time + 0.005);
-          gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.35);
-          osc.connect(filter);
-          filter.connect(gain);
-          gain.connect(masterGain);
-          osc.start(time);
-          osc.stop(time + 0.37);
-        });
-      });
-    }
-
-    function clap(time, volume = 0.35) {
-      // Three quick bursts make it sound like a clap rather than a snare
-      [0, 0.011, 0.022].forEach(offset => noiseHit(time + offset, 0.06, volume, 1100));
-    }
-
-    // Four-bar loop in A minor, written in 16th-note steps (null = rest)
-    const ACID_ROOTS = [45, 45, 48, 43];
-    const ACID_PATTERN = [0, 0, 12, null, 0, 3, null, 15, 0, null, 12, 7, 0, 10, 12, null];
-    const ACID_ACCENTS = new Set([2, 7, 11, 14]);
-    // Squeaky hook, plays on bars 2 and 4 as a call and response
-    const SQUEAK_HOOK = [81, null, 81, null, 84, null, 81, 79, null, 76, null, 76, 79, 81, null, null];
-    const STAB_CHORD = [57, 60, 64];
+    // Four-bar riff in E, written in 16th-note steps.
+    // Each step is [semitones above the bar's root, open (held) note?] or null.
+    const RIFF_ROOTS = [52, 52, 48, 50]; // E, E, C, D
+    const RIFF = [
+      [0, true], [0, false], [0, false], null,
+      [0, false], [0, false], [3, true], null,
+      [0, false], [0, false], [5, true], null,
+      [0, false], [7, true], [5, true], [3, false]
+    ];
+    const KICKS = new Set([0, 3, 6, 8, 11, 14]);
+    const FILL_TOMS = [57, 53, 50, 45];
+    // Heroic lead for the second half of the 8-bar loop, one note per 8th
+    const LEAD = [
+      [64, null, 67, 69, 71, null, 69, 67],
+      [71, null, 74, 76, 74, null, 71, null],
+      [72, null, 71, 69, 67, null, 64, null],
+      [66, null, 67, 69, 71, null, null, null]
+    ];
 
     const music = {
       timer: null,
@@ -1042,43 +1004,51 @@
         while (this.nextTime < audioCtx.currentTime + 0.12) {
           this.playStep(this.step, this.nextTime);
           this.nextTime += 60 / this.bpm / 4;
-          this.step = (this.step + 1) % 64;
+          this.step = (this.step + 1) % 128;
         }
       },
 
       playStep(step, t) {
-        const bar = Math.floor(step / 16);
+        const section = Math.floor(step / 64); // 0 = riff, 1 = riff + lead
+        const bar = Math.floor(step / 16) % 4;
         const s = step % 16;
         const sixteenth = 60 / this.bpm / 4;
-
         const isFill = bar === 3 && s >= 12;
 
-        // Four-on-the-floor distorted kick with rumble in the gaps
-        if (s % 4 === 0) kick(t);
-        if (s % 4 === 2 || s % 4 === 3) rumble(33, t, sixteenth * 0.9);
+        // Soft crash at the top of each half
+        if (step % 64 === 0) noiseHit(t, 0.8, 0.07, 6000, musicBus);
 
-        // Claps on 2 and 4, then a clap roll to end every 4 bars
-        if (isFill) clap(t, 0.15 + (s - 12) * 0.07);
-        else if (s % 8 === 4) clap(t);
-
-        // Hats: ticking 16ths plus an open hat on every offbeat
-        noiseHit(t, 0.02, 0.05, 9000);
-        if (s % 4 === 2) noiseHit(t, 0.09, 0.14, 7000);
-
-        // Acid bass with the filter slowly opening and closing over 4 bars
-        const note = ACID_PATTERN[s];
-        if (note !== null) {
-          const sweep = 0.5 - 0.5 * Math.cos((2 * Math.PI * step) / 64);
-          acid(ACID_ROOTS[bar] + note, t, sixteenth * 0.95, 350 + 2400 * sweep, ACID_ACCENTS.has(s));
+        if (isFill) {
+          // Tom roll down into the next part, with one chord held over it
+          tom(FILL_TOMS[s - 12], t);
+          if (s === 12) {
+            chip(pulse25, RIFF_ROOTS[bar], t, sixteenth * 4, 0.07);
+            chip(pulse25, RIFF_ROOTS[bar] + 7, t, sixteenth * 4, 0.05);
+            chip('triangle', RIFF_ROOTS[bar] - 12, t, sixteenth * 4, 0.3);
+          }
+          return;
         }
 
-        // Rave stab at the start of bars 1 and 3
-        if (s === 0 && bar % 2 === 0) stab(STAB_CHORD, t);
+        // Drums: kick follows the riff, gallops on the 3rd bar, snare on 2 and 4
+        if (KICKS.has(s) || (bar === 2 && s % 2 === 0)) kick(t);
+        if (s === 4 || s === 12) snare(t);
+        if (s % 2 === 0) noiseHit(t, 0.025, 0.04, 9000, musicBus);
 
-        // Squeaky brain rot hook on bars 2 and 4
-        if (bar % 2 === 1 && !isFill) {
-          const hook = SQUEAK_HOOK[s];
-          if (hook) squeak(hook, t, sixteenth * 1.4);
+        // Riff: chugging pulse "power chords" over triangle bass
+        const hit = RIFF[s];
+        if (hit) {
+          const [offset, open] = hit;
+          const note = RIFF_ROOTS[bar] + offset;
+          const len = sixteenth * (open ? 1.8 : 0.7);
+          chip(pulse12, note, t, len, open ? 0.07 : 0.055);
+          chip(pulse12, note + 7, t, len, open ? 0.05 : 0.035);
+          chip('triangle', note - 12, t, len, 0.3);
+        }
+
+        // Lead melody in the second half
+        if (section === 1 && s % 2 === 0) {
+          const lead = LEAD[bar][s / 2];
+          if (lead) chip(pulse25, lead, t, sixteenth * 1.9, 0.06);
         }
       }
     };
